@@ -262,18 +262,22 @@ static struct mtoken getnum(struct mlexer *self) {
 
    /* Checks the numeber prefix. */
    if (c == '0') {
-      switch (next(self)) {
+      char p = peek(self);
+      switch (p) {
       case 'o':
+         next(self);
          c = next(self);
          base = 8;
          bname = "octal";
          break;
       case 'b':
+         next(self);
          c = next(self);
          base = 2;
          bname = "binary";
          break;
       case 'x':
+         next(self);
          c = next(self);
          base = 16;
          bname = "hexadecimal";
