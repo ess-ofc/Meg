@@ -245,7 +245,7 @@ static const char *getstr(struct mlexer *self) {
    );
 }
 
-static struct mtoken getnum(struct mlexer *self, char c) {
+static struct mtoken getnum(struct mlexer *self) {
    struct mtoken ret = {
       .loc = {
          .filename = self->fname,
@@ -255,24 +255,29 @@ static struct mtoken getnum(struct mlexer *self, char c) {
       .kind = mTOK_INTEGER
    };
 
+   char c = cur(self);
    int base = 10;
    bool f = false;  // Is float.
    const char *bname = "decimal";
 
    /* Checks the numeber prefix. */
    if (c == '0') {
-      switch (cur(self)) {
+      char p = peek(self);
+      switch (p) {
       case 'o':
+         next(self);
          c = next(self);
          base = 8;
          bname = "octal";
          break;
       case 'b':
+         next(self);
          c = next(self);
          base = 2;
          bname = "binary";
          break;
       case 'x':
+         next(self);
          c = next(self);
          base = 16;
          bname = "hexadecimal";
@@ -459,7 +464,7 @@ again:
    }
 
    if (isdigit(c)) {
-      return getnum(self, c);
+      return getnum(self);
    }
 
    switch (c) {
@@ -470,10 +475,12 @@ again:
       break;
 
    case '\\':
+      next(self);
       readuntil(self, '\\');
       ret.kind = mTOK_DOC;
       break;
    case '"':
+      next(self);
       ret.kind = mTOK_STRING;
       ret.lit = getstr(self);
       goto end;
@@ -533,7 +540,7 @@ again:
    case '&':
       tc = peek(self);
       if (tc == '&') {
-         peek(self);
+         next(self);
          ret.kind = mTOK_LAND;
          break;
       }
