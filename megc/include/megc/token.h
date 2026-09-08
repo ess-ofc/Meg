@@ -29,9 +29,7 @@ enum mtoken_kind {
    mTOK_IF,
    mTOK_OR,
    mTOK_ELSE,
-   mTOK_WHILE,
    mTOK_FOR,
-   mTOK_LOOP,
    mTOK_BREAK,
    mTOK_CONTINUE,
 

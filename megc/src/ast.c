@@ -86,6 +86,11 @@ void mexpr_del(struct mexpr *self) {
    case mEXPR_PAREN:
       mexpr_del(self->as.paren.child);
       break;
+   case mEXPR_OPERATION:
+      if (self->as.operation.stmts) {
+         mstmt_del(self->as.operation.stmts);
+      }
+      break;
    }
 
    free(self);
@@ -118,6 +123,49 @@ void mdecl_del(struct mdecl *self) {
    if (self->type) {
       mtype_del(self->type);
    }
+   free(self);
+}
+
+void mstmt_del(struct mstmt *self) {
+   if (self->next) {
+      mstmt_del(self->next);
+   }
+
+   switch (self->kind) {
+   case mSTMT_INVAL:
+      /*
+       * Invalid nodes cannot
+       * have memory allocations.
+       */
+      break;
+   case mSTMT_DEF:
+      if (self->as.def.decl) {
+         mdecl_del(self->as.def.decl);
+      }
+      if (self->as.def.init) {
+         mexpr_del(self->as.def.init);
+      }
+      break;
+   case mSTMT_ASSIGN:
+      if (self->as.assign.decl) {
+         mexpr_del(self->as.assign.decl);
+      }
+      if (self->as.assign.expr) {
+         mexpr_del(self->as.assign.expr);
+      }
+      break;
+   case mSTMT_RESULT:
+      if (self->as.result.expr) {
+         mexpr_del(self->as.result.expr);
+      }
+      break;
+   case mSTMT_DEL:
+      if (self->as.del.expr) {
+         mexpr_del(self->as.del.expr);
+      }
+      break;
+   }
+
    free(self);
 }
 
@@ -325,10 +373,56 @@ void mexpr_print(struct mexpr *e, int ind) {
       indent(ind);
       puts("}");
       break;
+   case mEXPR_OPERATION:
+      printf("ExprOperation {\n");
+      mstmt_print(e->as.operation.stmts, ind + 1);
+      indent(ind);
+      puts("}");
+      break;
    }
 
 end:
    if (e->next) {
       mexpr_print(e->next, ind);
+   }
+}
+
+void mstmt_print(struct mstmt *s, int ind) {
+   indent(ind);
+
+   switch (s->kind) {
+   case mSTMT_INVAL:
+      puts("Stmt is Invalid");
+      break;
+   case mSTMT_DEF:
+      puts("StmtDef {");
+      mdecl_print(s->as.def.decl, ind + 1);
+      mexpr_print(s->as.def.init, ind + 1);
+      indent(ind);
+      puts("}");
+      break;
+   case mSTMT_ASSIGN:
+      puts("StmtAssign {");
+      mexpr_print(s->as.assign.decl, ind + 1);
+      mexpr_print(s->as.assign.expr, ind + 1);
+      indent(ind);
+      puts("}");
+      break;
+   case mSTMT_RESULT:
+      puts("StmtResult {");
+      mexpr_print(s->as.result.expr, ind + 1);
+      indent(ind);
+      puts("}");
+      break;
+   case mSTMT_DEL:
+      puts("StmtDel {");
+      mexpr_print(s->as.result.expr, ind + 1);
+      indent(ind);
+      puts("}");
+      break;
+   }
+
+   if (s->next) {
+      mstmt_print(s->next, ind);
    }
 }

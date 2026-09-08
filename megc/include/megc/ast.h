@@ -66,7 +66,8 @@ enum mexpr_kind {
    mEXPR_DECL_REF,
    mEXPR_CALL,
    mEXPR_LIT,
-   mEXPR_PAREN
+   mEXPR_PAREN,
+   mEXPR_OPERATION
 };
 
 enum mbin_op_kind {
@@ -136,6 +137,10 @@ struct mexpr {
       struct mparen {
          struct mexpr *child;
       } paren;
+
+      struct moperation {
+         struct mstmt *stmts;
+      } operation;
    } as;
    enum mexpr_kind kind;
 };
@@ -168,16 +173,26 @@ void mdecl_del(struct mdecl *self);
 
 /* Statements. */
 
+enum mstmt_kind {
+   mSTMT_INVAL = 0,
+   mSTMT_DEF,
+   mSTMT_ASSIGN,
+   mSTMT_RESULT,
+   mSTMT_DEL
+};
+
 struct mstmt {
    struct mstmt *next;
    struct mloc loc;
    union {
       struct mdef {
-         const char *id;
+         struct mdecl *decl;
+         struct mexpr *init;
       } def;
 
       struct massign {
-         uint64_t id;
+         struct mexpr *decl;
+         struct mexpr *expr;
       } assign;
 
       struct mnew {
@@ -186,15 +201,19 @@ struct mstmt {
       } new;
 
       struct mdel {
-         int _;
+         struct mexpr *expr;
       } del;
 
       struct mresult {
-         int _;
+         struct mexpr *expr;
       } result;
    } as;
+   enum mstmt_kind kind;
 };
+
+void mstmt_del(struct mstmt *self);
 
 void munit_print(struct munit *u);
 void mdecl_print(struct mdecl *e, int ind);
 void mexpr_print(struct mexpr *e, int ind);
+void mstmt_print(struct mstmt *s, int ind);

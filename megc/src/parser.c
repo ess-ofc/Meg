@@ -41,6 +41,13 @@ static inline struct mtoken cur(
    return self->fst;
 }
 
+/* The next token. */
+static inline struct mtoken nxt(
+   struct parser *self
+) {
+   return self->snd;
+}
+
 /* Skips mTOK_DOC and mTOK_EOL, if any. */
 static inline struct mtoken nxtvalid(
    struct parser *self
@@ -165,6 +172,10 @@ static struct mexpr *parse_paren(
    struct parser *self,
    struct mtoken tok
 );
+static struct mexpr *parse_operation(
+   struct parser *self,
+   struct mtoken tok
+);
 static struct mexpr *parse_call(
    struct parser *self,
    struct mtoken tok,
@@ -192,6 +203,8 @@ static struct expr NUD_OPS[mTOK_MAX] = {
    [mTOK_NEG] = {90, parse_una_op, nullptr},
 
    [mTOK_LPAREN] = {100, parse_paren, nullptr},
+   [mTOK_LBRACE] = {100, parse_operation, nullptr},
+
    [mTOK_ID] = {999, parse_decl_ref, nullptr},
    [mTOK_INTEGER] = {999, parse_lit, nullptr},
 };
@@ -223,6 +236,101 @@ static struct expr LED_OPS[mTOK_MAX] = {
 
    [mTOK_LPAREN] = {100, nullptr, parse_call},
 };
+
+static struct mstmt *parse_result(
+   struct parser *self
+);
+static struct mstmt *parse_objinit(
+   struct parser *self
+);
+static struct mstmt *parse_assign(
+   struct parser *self
+);
+static struct mstmt *parse_del(
+   struct parser *self
+);
+
+static struct mexpr *parse_operation(
+   struct parser *self,
+   struct mtoken tok
+) {
+   assert(tok.kind == mTOK_LBRACE);
+   advance(self);  // Skips the left brace.
+
+   struct mexpr *ret = malloc(sizeof *ret);
+   *ret = (struct mexpr){
+      .kind = mEXPR_OPERATION,
+      .loc = tok.loc
+   };
+
+   if (!eol(self, &tok)) {
+      mferro(tok.loc, "Expected new line after '{'.");
+      ret->kind = mEXPR_INVAL;
+      return ret;
+   }
+
+   struct mstmt *fst = nullptr, *lst = fst;
+
+   /* Main statement parsing loop. */
+   while (true) {
+      tok = cur(self);
+      struct mstmt *stmt = nullptr;
+
+      switch (tok.kind) {
+      case mTOK_EOL:
+         advance(self);
+         continue;
+
+      case mTOK_RBRACE:
+         advance(self);
+         goto end;
+
+      case mTOK_DEL:
+         stmt = parse_del(self);
+         break;
+
+      case mTOK_ID:
+         if (nxt(self).kind == mTOK_COLON) {
+            stmt = parse_objinit(self);
+         } else if (nxt(self).kind == mTOK_ASSIGN) {
+            stmt = parse_assign(self);
+         } else {
+            goto result;
+         }
+         break;
+
+      default:
+result:
+         stmt = parse_result(self);
+      }
+
+      if (!fst) {
+         fst = stmt;
+         lst = fst;
+      } else {
+         lst->next = stmt;
+         lst = stmt;
+      }
+
+      if (!eol(self, &tok)) {
+         mferro(tok.loc, "Expected newline.");
+         skipuntil(self, mTOK_RBRACE);
+         goto inval;
+      }
+      continue;
+   }
+
+end:
+   ret->as.operation.stmts = fst;
+   return ret;
+
+inval:
+   if (ret->as.operation.stmts) {
+      mstmt_del(ret->as.operation.stmts);
+   }
+   ret->kind = mEXPR_INVAL;
+   return ret;
+}
 
 static struct mexpr *parse_call(
    struct parser *self,
@@ -338,6 +446,8 @@ static struct mexpr *parse_lit(
    struct mtoken tok
 ) {
    assert(tok.kind == mTOK_INTEGER);
+   [[maybe_unused]]
+   auto curt = cur(self);
    advance(self);
 
    struct mexpr *ret = malloc(sizeof *ret);
@@ -507,7 +617,7 @@ static struct mexpr *parse_expr(
    struct parser *self,
    int prec
 ) {
-   auto tok = nxtvalid(self);
+   auto tok = cur(self);
    struct expr left = nud(tok);
    if (!left.nud) {
       mferro(tok.loc, "Expected expression.");
@@ -654,6 +764,139 @@ static struct mdecl *parse_func(struct parser *self) {
 
 inval:
    ret->kind = mDECL_INVAL;
+   return ret;
+}
+
+/* Statements. */
+
+static struct mstmt *parse_result(
+   struct parser *self
+) {
+   struct mtoken tok;
+   struct mstmt *ret = malloc(sizeof *ret);
+   *ret = (struct mstmt){
+      .kind = mSTMT_RESULT,
+      .loc = tok.loc
+   };
+
+   auto expr = parse_expr(self, 0);
+   if (!expr) {
+      skipuntil(self, mTOK_EOL);
+      goto inval;
+   }
+
+   ret->as.result.expr = expr;
+   return ret;
+
+inval:
+   ret->kind = mSTMT_INVAL;
+   return ret;
+}
+
+static struct mstmt *parse_del(
+   struct parser *self
+) {
+   auto tok = cur(self);
+   assert(tok.kind == mTOK_DEL);
+
+   struct mstmt *ret = malloc(sizeof *ret);
+   *ret = (struct mstmt){
+      .kind = mSTMT_DEL,
+      .loc = tok.loc
+   };
+
+   /* Skips the 'del' keyword. */
+   advance(self);
+
+   auto expr = parse_expr(self, 0);
+   if (!expr) {
+      skipuntil(self, mTOK_EOL);
+      goto inval;
+   }
+   ret->as.del.expr = expr;
+
+   return ret;
+
+inval:
+   ret->kind = mSTMT_INVAL;
+   return ret;
+}
+
+static struct mstmt *parse_objinit(
+   struct parser *self
+) {
+   auto tok = cur(self);
+   assert(
+      tok.kind == mTOK_ID &&
+      nxt(self).kind == mTOK_COLON
+   );
+
+   struct mstmt *ret = malloc(sizeof *ret);
+   *ret = (struct mstmt){
+      .kind = mSTMT_DEF,
+      .loc = tok.loc
+   };
+
+   ret->as.def.decl = parse_objdecl(self);
+   if (!ret->as.def.decl) {
+      skipuntil(self, mTOK_EOL);
+      goto inval;
+   }
+
+   if (expect(self, &tok, mTOK_ASSIGN)) {
+      ret->as.def.init = parse_expr(self, 0);
+      if (!ret->as.def.init) {
+         skipuntil(self, mTOK_EOL);
+         goto inval;
+      }
+   }
+
+   return ret;
+
+inval:
+   ret->kind = mSTMT_INVAL;
+   return ret;
+}
+
+static struct mstmt *parse_assign(
+   struct parser *self
+) {
+   auto tok = cur(self);
+   assert(tok.kind == mTOK_ID);
+
+   struct mstmt *ret = malloc(sizeof *ret);
+   *ret = (struct mstmt){
+      .kind = mSTMT_ASSIGN,
+      .loc = tok.loc
+   };
+
+   struct mexpr *declref = parse_expr(self, 0);
+   if (!declref) {
+      skipuntil(self, mTOK_ASSIGN);
+   }
+   ret->as.assign.decl = declref;
+
+   /* Skips the '='. */
+   assert(cur(self).kind == mTOK_ASSIGN);
+   tok = advance(self);
+
+   struct mexpr *expr = parse_expr(self, 0);
+   if (!expr) {
+      skipuntil(self, mTOK_EOL);
+      goto inval;
+   }
+   ret->as.assign.expr = expr;
+
+   return ret;
+
+inval:
+   if (ret->as.assign.decl) {
+      mexpr_del(ret->as.assign.decl);
+   }
+   if (ret->as.assign.expr) {
+      mexpr_del(ret->as.assign.expr);
+   }
+   ret->kind = mSTMT_INVAL;
    return ret;
 }
 
