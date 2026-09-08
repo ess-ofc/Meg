@@ -240,7 +240,7 @@ static struct expr LED_OPS[mTOK_MAX] = {
 static struct mstmt *parse_result(
    struct parser *self
 );
-static struct mstmt *parse_objinit(
+static struct mstmt *parse_def(
    struct parser *self
 );
 static struct mstmt *parse_assign(
@@ -265,8 +265,6 @@ static struct mexpr *parse_operation(
 
    if (!eol(self, &tok)) {
       mferro(tok.loc, "Expected new line after '{'.");
-      ret->kind = mEXPR_INVAL;
-      return ret;
    }
 
    struct mstmt *fst = nullptr, *lst = fst;
@@ -291,7 +289,7 @@ static struct mexpr *parse_operation(
 
       case mTOK_ID:
          if (nxt(self).kind == mTOK_COLON) {
-            stmt = parse_objinit(self);
+            stmt = parse_def(self);
          } else if (nxt(self).kind == mTOK_ASSIGN) {
             stmt = parse_assign(self);
          } else {
@@ -321,6 +319,10 @@ result:
    }
 
 end:
+   if (!fst) {
+      mferro(tok.loc, "Empty operation.");
+      goto inval;
+   }
    ret->as.operation.stmts = fst;
    return ret;
 
@@ -822,7 +824,7 @@ inval:
    return ret;
 }
 
-static struct mstmt *parse_objinit(
+static struct mstmt *parse_def(
    struct parser *self
 ) {
    auto tok = cur(self);
@@ -843,7 +845,8 @@ static struct mstmt *parse_objinit(
       goto inval;
    }
 
-   if (expect(self, &tok, mTOK_ASSIGN)) {
+   if (cur(self).kind == mTOK_ASSIGN) {
+      advance(self);
       ret->as.def.init = parse_expr(self, 0);
       if (!ret->as.def.init) {
          skipuntil(self, mTOK_EOL);
