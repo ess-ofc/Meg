@@ -19,6 +19,7 @@ will be rewritten in the future. If you
 are interested, contact me.
 
 > [!WARNING]
-> We **don't accept** AI generated code.
+> We **don't accept** AI generated code, use
+> AI strictly for code review.
 
    See `/LICENSE` for the GPL-3 license.

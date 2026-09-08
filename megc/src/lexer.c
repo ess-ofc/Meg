@@ -11,6 +11,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <string.h>
 
 struct mlexer mlexer_new(
    struct mstrpool *strpool,
@@ -28,7 +29,7 @@ struct mlexer mlexer_new(
    };
 }
 
-static inline char getch(struct mlexer *self) {
+static inline char next(struct mlexer *self) {
    if (self->off < self->busz) {
       char c = self->buf[self->off++];
       if (c == '\n') {
@@ -37,30 +38,77 @@ static inline char getch(struct mlexer *self) {
       }
 
       self->column++;
-      return c;
+      return self->buf[self->off];
    }
-
    return '\0';
 }
 
-static inline void ungetch(struct mlexer *self) {
-   if (self->column > 1) {
-      self->column--;
-      self->off--;
+static inline char cur(struct mlexer *self) {
+   if (self->off < self->busz) {
+      return self->buf[self->off];
    }
+   return '\0';
+}
+
+static inline char peek(struct mlexer *self) {
+   if (self->off + 1 < self->busz) {
+      return self->buf[self->off + 1];
+   }
+   return '\0';
 }
 
 static inline void readuntil(struct mlexer *self, char c) {
-   char ch = getch(self);
+   char ch = cur(self);
    while (ch != c) {
-      ch = getch(self);
+      ch = peek(self);
+      next(self);
       if (ch == '\0') {
          break;
       }
    }
 }
 
-static const char *getid(struct mlexer *self) {
+static enum mtoken_kind iskeyword(
+   const char *id,
+   size_t len
+) {
+   constexpr struct {
+      size_t len;
+      const char kw[16];
+      enum mtoken_kind kind;
+   } keywords[] = {
+      {4, "type", mTOK_TYPE},
+      {3, "let", mTOK_LET},
+      {3, "mut", mTOK_MUT},
+      {3, "new", mTOK_NEW},
+      {3, "del", mTOK_DEL},
+      {5, "defer", mTOK_DEFER},
+      {2, "if", mTOK_IF},
+      {2, "or", mTOK_OR},
+      {4, "else", mTOK_ELSE},
+      {3, "for", mTOK_FOR},
+      {5, "break", mTOK_BREAK},
+      {8, "continue", mTOK_CONTINUE}
+   };
+
+   constexpr int arrsz =
+      sizeof keywords / sizeof keywords[0];
+
+   for (int i = 0; i < arrsz; i++) {
+      if (keywords[i].len == len) {
+         if (!memcmp(keywords[i].kw, id, len)) {
+            return keywords[i].kind;
+         }
+      }
+   }
+
+   return mTOK_ID;
+}
+
+static struct mtoken getid(
+   struct mlexer *self,
+   struct mloc loc
+) {
    const char *beg = &self->buf[self->off];
    size_t len = 0;
 
@@ -74,12 +122,18 @@ static const char *getid(struct mlexer *self) {
       self->off++;
    }
 
-   self->column += len;
-   return mstrpool_insert(
+   const char *entry = mstrpool_insert(
       self->strpool,
       beg,
       len
    );
+
+   self->column += len;
+   return (struct mtoken){
+      .kind = iskeyword(beg, len),
+      .loc = loc,
+      .lit = entry
+   };
 }
 
 static char getscape(struct mlexer *self) {
@@ -89,7 +143,8 @@ static char getscape(struct mlexer *self) {
       .column = self->column
    };
 
-   char c = getch(self);
+   char c = cur(self);
+   next(self);
    switch (c) {
    case '\0':
       mferro(loc, "Unterminated scape sequence.");
@@ -121,7 +176,6 @@ static char getscape(struct mlexer *self) {
 
    default:
       mferro(loc, "Unknown scape sequence: '%c'.", c);
-      ungetch(self);
       return 0;
    }
 }
@@ -136,34 +190,39 @@ static const char *getstr(struct mlexer *self) {
    char str[16 * 1024];
    size_t len = 0;
 
-   char c;
+   char c = cur(self);
    while (true) {
-      c = getch(self);
       if (c == '"') {
          break;
       }
 
       if (len >= sizeof str) {
-         mferro(loc, "Sting too large.");
+         mferro(loc, "String too large.");
+         str[sizeof str - 1] = '\0';
+
+         /* skipuntil 'gambiarra'. */
          while (c != '"') {
-            c = getch(self);
+            c = next(self);
             if (c == '\0' || c == '\n') {
                auto cloc = loc;
                cloc.column = self->column;
                mferro(cloc, "Unterminated string.");
-               readuntil(self, '\'');  // Tries to find '"'.
+               readuntil(self, '"');  // Tries to find '"'.
+               next(self);
                return nullptr;
             }
          }
          break;
       }
+
       switch (c) {
       case '\n':
       case '\0':
          auto cloc = loc;
          cloc.column = self->column;
          mferro(cloc, "Unterminated string literal.");
-         readuntil(self, '\'');  // Tries to find '"'.
+         readuntil(self, '"');  // Tries to find '"'.
+         next(self);
          return nullptr;
 
       case '\\':
@@ -174,6 +233,8 @@ static const char *getstr(struct mlexer *self) {
       default:
          str[len++] = c;
       }
+
+      next(self);
    }
 
    // Inserts the string in the pool.
@@ -200,24 +261,23 @@ static struct mtoken getnum(struct mlexer *self, char c) {
 
    /* Checks the numeber prefix. */
    if (c == '0') {
-      char p = getch(self);
-      switch (p) {
+      switch (cur(self)) {
       case 'o':
+         c = next(self);
          base = 8;
          bname = "octal";
          break;
       case 'b':
+         c = next(self);
          base = 2;
          bname = "binary";
          break;
       case 'x':
+         c = next(self);
          base = 16;
          bname = "hexadecimal";
          break;
-      default:
-         ungetch(self);
       }
-      c = getch(self);
    }
 
    char buf[1024];
@@ -245,7 +305,7 @@ static struct mtoken getnum(struct mlexer *self, char c) {
             mferro(cloc, "Consecutive separators.");
          }
          issep = true;
-         c = getch(self);
+         c = next(self);
          continue;
 
       case '0':
@@ -284,33 +344,65 @@ eval:
       case 'E':
          buf[busz++] = 'e';
          f = true;
-         c = getch(self);
+         c = next(self);
 
          /* Appends the signal. */
          if (c == '-' || c == '+') {
             buf[busz++] = c;
-            c = getch(self);
+            c = next(self);
          }
 
          while (isdigit(c)) {
             buf[busz++] = c;
-            c = getch(self);
+            c = next(self);
          }
-         /* Goes one char back. */
-         ungetch(self);
 
          /* Checks out if the exponent has digits. */
          c = self->buf[self->off - 1];
          if (c == 'E' || c == '-' || c == '+') {
             mferro(cloc, "Exponent has no digits.");
          }
-         goto final;
+
+         /* throughout */
       default:
-         ungetch(self);
          goto final;
       }
 
-      c = getch(self);
+      if (busz == sizeof buf) {
+         mferro(ret.loc, "Number too long.");
+         /* skipuntil 'gambiarra'. */
+         while (
+            isdigit(c) ||
+            (base == 16 ?
+                  c == 'a' ||
+                     c == 'b' ||
+                     c == 'c' ||
+                     c == 'd' ||
+                     c == 'e' ||
+                     c == 'f' :
+                  false)
+         ) {
+            if (c == 'E') {
+               c = next(self);
+               while (
+                  isdigit(c) ||
+                  c == '+' ||
+                  c == '-'
+               ) {
+                  c = next(self);
+               }
+               break;
+            }
+
+            c = next(self);
+         }
+
+         return (struct mtoken){
+            .kind = mTOK_INVAL
+         };
+      }
+
+      c = next(self);
       issep = false;
    }
 
@@ -342,30 +434,28 @@ again:
       .kind = mTOK_INVAL
    };
 
-   char c = getch(self);
+   char c = cur(self);
    if (isspace(c)) {
       while (isspace(c)) {
          if (c == '\n') {
+            next(self);
             ret.kind = mTOK_EOL;
             goto end;
          }
 
          if (self->off < self->busz) {
-            c = getch(self);
+            c = peek(self);
+            next(self);
             continue;
          }
          goto end;
       }
 
-      ungetch(self);
       goto again;
    }
 
    if (isalpha(c) || c == '_') {
-      ungetch(self);
-      ret.kind = mTOK_ID;
-      ret.lit = getid(self);
-      goto end;
+      return getid(self, ret.loc);
    }
 
    if (isdigit(c)) {
@@ -383,22 +473,23 @@ again:
       readuntil(self, '\\');
       ret.kind = mTOK_DOC;
       break;
-
    case '"':
       ret.kind = mTOK_STRING;
       ret.lit = getstr(self);
-      break;
+      goto end;
    case '\'':
       ret.kind = mTOK_CHAR;
       char ch;
 
       /* Gets the content. */
-      ch = getch(self);
+      ch = peek(self);
       if (ch == '\\') {  // Is scape.
+         next(self);
          ch = getscape(self);
       } else {
          if (ch == '\'') {  // Is the left quote.
             mferro(ret.loc, "Empty char literal.");
+            next(self);
             ret.lit = " ";
             break;
          } else if (ch == '\0' || ch == '\n') {  // Is EOF or EOL.
@@ -409,7 +500,7 @@ again:
          }
       }
 
-      c = getch(self);
+      c = peek(self);
       if (c != '\'') {
          mferro(ret.loc, "Incomplete char literal.");
          readuntil(self, '\'');
@@ -422,7 +513,7 @@ again:
          &ch,
          1
       );
-      break;
+      goto end;
 
    case '+':
       ret.kind = mTOK_ADD;
@@ -440,24 +531,20 @@ again:
       ret.kind = mTOK_MOD;
       break;
    case '&':
-      tc = getch(self);
+      tc = peek(self);
       if (tc == '&') {
+         peek(self);
          ret.kind = mTOK_LAND;
          break;
-      }
-      if (tc != '\0') {
-         ungetch(self);
       }
       ret.kind = mTOK_AND;
       break;
    case '|':
-      tc = getch(self);
+      tc = peek(self);
       if (tc == '|') {
+         next(self);
          ret.kind = mTOK_LOR;
          break;
-      }
-      if (tc != '\0') {
-         ungetch(self);
       }
       ret.kind = mTOK_BOR;
       break;
@@ -465,6 +552,12 @@ again:
       ret.kind = mTOK_EOR;
       break;
    case '!':
+      ch = peek(self);
+      if (ch == '=') {
+         next(self);
+         ret.kind = mTOK_NEQ;
+         break;
+      }
       ret.kind = mTOK_NEG;
       break;
 
@@ -496,7 +589,31 @@ again:
       ret.kind = mTOK_RBRACE;
       break;
    case '=':
+      ch = peek(self);
+      if (ch == '=') {
+         next(self);
+         ret.kind = mTOK_EQL;
+         break;
+      }
       ret.kind = mTOK_ASSIGN;
+      break;
+   case '>':
+      ch = peek(self);
+      if (ch == '=') {
+         next(self);
+         ret.kind = mTOK_GEQ;
+         break;
+      }
+      ret.kind = mTOK_GTR;
+      break;
+   case '<':
+      ch = peek(self);
+      if (ch == '=') {
+         next(self);
+         ret.kind = mTOK_LEQ;
+         break;
+      }
+      ret.kind = mTOK_LSS;
       break;
 
    case '$':
@@ -507,8 +624,10 @@ again:
       break;
 
    default:
-      merro("Undefined character '%c'.", c);
+      mferro(ret.loc, "Undefined character '%c'.", c);
    }
+
+   next(self);
 
 end:
    return ret;

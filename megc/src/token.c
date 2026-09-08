@@ -24,9 +24,7 @@ const char *toknames[] = {
    [mTOK_IF] = "if",
    [mTOK_OR] = "or",
    [mTOK_ELSE] = "else",
-   [mTOK_WHILE] = "while",
    [mTOK_FOR] = "for",
-   [mTOK_LOOP] = "loop",
    [mTOK_BREAK] = "break",
    [mTOK_CONTINUE] = "continue",
 
@@ -48,8 +46,11 @@ const char *toknames[] = {
    [mTOK_LAND] = "&&",
    [mTOK_LOR] = "||",
    [mTOK_EQL] = "==",
+   [mTOK_NEQ] = "!=",
    [mTOK_GTR] = ">",
    [mTOK_LSS] = "<",
+   [mTOK_GEQ] = ">=",
+   [mTOK_LEQ] = "<=",
 
    [mTOK_COMMA] = ",",
    [mTOK_COLON] = ":",

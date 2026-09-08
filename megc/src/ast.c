@@ -7,7 +7,167 @@
 
 #include <megc/ast.h>
 
+#include <malloc.h>
 #include <stdio.h>
+
+void munit_del(struct munit *self) {
+   mdecl_del(self->decls);
+   free(self);
+}
+
+void mtype_del(struct mtype *self) {
+   switch (self->kind) {
+   case mTYPE_INVAL:
+      /*
+       * Invalid nodes cannot
+       * have memory allocations.
+       */
+      break;
+   case mTYPE_IDENT:
+      break;
+   case mTYPE_STRUCT:
+      if (self->as.struc.fields) {
+         mdecl_del(self->as.struc.fields);
+      }
+      break;
+   case mTYPE_ARRAY:
+      if (self->as.array.type) {
+         mtype_del(self->as.array.type);
+      }
+      if (self->as.array.size) {
+         mexpr_del(self->as.array.size);
+      }
+      break;
+   case mTYPE_SLICE:
+      if (self->as.slice.szty) {
+         mtype_del(self->as.slice.szty);
+      }
+      if (self->as.slice.rgty) {
+         mtype_del(self->as.slice.rgty);
+      }
+      break;
+   }
+
+   free(self);
+}
+
+void mexpr_del(struct mexpr *self) {
+   if (self->next) {
+      /* It's an expression list. */
+      mexpr_del(self->next);
+   }
+
+   switch (self->kind) {
+   case mEXPR_INVAL:
+      /*
+       * Invalid nodes cannot
+       * have memory allocations.
+       */
+      break;
+   case mEXPR_BIN_OP:
+      mexpr_del(self->as.bin_op.lhs);
+      if (self->as.bin_op.rhs) {  // Optional field.
+         mexpr_del(self->as.bin_op.rhs);
+      }
+      break;
+   case mEXPR_UNA_OP:
+      mexpr_del(self->as.una_op.oprnd);
+      break;
+   case mEXPR_DECL_REF:
+      break;
+   case mEXPR_CALL:
+      mexpr_del(self->as.call.decl);
+      if (self->as.call.args) {
+         mexpr_del(self->as.call.args);
+      }
+      break;
+   case mEXPR_LIT:
+      break;
+   case mEXPR_PAREN:
+      mexpr_del(self->as.paren.child);
+      break;
+   case mEXPR_OPERATION:
+      if (self->as.operation.stmts) {
+         mstmt_del(self->as.operation.stmts);
+      }
+      break;
+   }
+
+   free(self);
+}
+
+void mdecl_del(struct mdecl *self) {
+   if (self->next) {
+      mdecl_del(self->next);
+   }
+
+   switch (self->kind) {
+   case mDECL_INVAL:
+      /*
+       * Invalid nodes cannot
+       * have memory allocations.
+       */
+      break;
+   case mDECL_FUNC:
+      if (self->as.func.params) {
+         mdecl_del(self->as.func.params);
+      }
+      if (self->as.func.expr) {
+         mexpr_del(self->as.func.expr);
+      }
+      break;
+   case mDECL_OBJ:
+      break;
+   }
+
+   if (self->type) {
+      mtype_del(self->type);
+   }
+   free(self);
+}
+
+void mstmt_del(struct mstmt *self) {
+   if (self->next) {
+      mstmt_del(self->next);
+   }
+
+   switch (self->kind) {
+   case mSTMT_INVAL:
+      /*
+       * Invalid nodes cannot
+       * have memory allocations.
+       */
+      break;
+   case mSTMT_DEF:
+      if (self->as.def.decl) {
+         mdecl_del(self->as.def.decl);
+      }
+      if (self->as.def.init) {
+         mexpr_del(self->as.def.init);
+      }
+      break;
+   case mSTMT_ASSIGN:
+      if (self->as.assign.decl) {
+         mexpr_del(self->as.assign.decl);
+      }
+      if (self->as.assign.expr) {
+         mexpr_del(self->as.assign.expr);
+      }
+      break;
+   case mSTMT_RESULT:
+      if (self->as.result.expr) {
+         mexpr_del(self->as.result.expr);
+      }
+      break;
+   case mSTMT_DEL:
+      if (self->as.del.expr) {
+         mexpr_del(self->as.del.expr);
+      }
+      break;
+   }
+
+   free(self);
+}
 
 static void indent(int ind) {
    while (ind--) {
@@ -21,6 +181,47 @@ void munit_print(struct munit *u) {
    puts("}");
 }
 
+void mtype_print(struct mtype *t, int ind) {
+   indent(ind);
+
+   switch (t->kind) {
+   case mTYPE_INVAL:
+      puts("Type is Invalid");
+      break;
+   case mTYPE_IDENT:
+      printf(
+         "TypeIdent %s, mut: %s\n",
+         t->as.ident.name,
+         t->mut ?
+            "true" :
+            "false"
+      );
+      break;
+   case mTYPE_STRUCT:
+      printf(
+         "TypeStruct, mut: %s {\n",
+         t->mut ? "true" : "false"
+      );
+      mdecl_print(t->as.struc.fields, ind + 1);
+      indent(ind);
+      puts("}");
+      break;
+   case mTYPE_ARRAY:
+      printf("TypeArray, mut: %s {\n", t->mut ? "true" : "false");
+      mexpr_print(t->as.array.size, ind + 1);
+      mtype_print(t->as.array.type, ind + 1);
+      indent(ind);
+      puts("}");
+      break;
+   case mTYPE_SLICE:
+      printf("TypeSlice, mut: %s {\n", t->mut ? "true" : "false");
+      mtype_print(t->as.slice.szty, ind + 1);
+      indent(ind + 1);
+      puts("}");
+      break;
+   }
+}
+
 void mdecl_print(struct mdecl *d, int ind) {
    indent(ind);
 
@@ -29,24 +230,31 @@ void mdecl_print(struct mdecl *d, int ind) {
       puts("Decl is Invalid");
       break;
    case mDECL_FUNC:
-      printf("DeclFunc '%s' -> '%s' {", d->id, d->types.name);
+      printf("DeclFunc '%s' {\n", d->id);
+      if (d->type) {
+         mtype_print(d->type, ind + 1);
+      }
       if (d->as.func.params) {
-         puts("");
          mdecl_print(d->as.func.params, ind + 1);
-         indent(ind);
       }
 
       if (d->as.func.expr) {
-         puts("");
          mexpr_print(d->as.func.expr, ind + 1);
+         indent(ind);
+      }
+
+      puts("}");
+      break;
+   case mDECL_OBJ:
+      printf("DeclObj '%s'", d->id);
+      if (d->type) {
+         puts(" {");
+         mtype_print(d->type, ind + 1);
          indent(ind);
          puts("}");
       } else {
-         puts("}");
+         puts("");
       }
-      break;
-   case mDECL_OBJ:
-      printf("DeclObj '%s': %s\n", d->id, d->types.name);
       break;
    }
 
@@ -99,6 +307,24 @@ void mexpr_print(struct mexpr *e, int ind) {
       case mBIN_OP_LOR:
          name = "||";
          break;
+      case mBIN_OP_EQL:
+         name = "==";
+         break;
+      case mBIN_OP_NEQ:
+         name = "!=";
+         break;
+      case mBIN_OP_GTR:
+         name = ">";
+         break;
+      case mBIN_OP_LSS:
+         name = "<";
+         break;
+      case mBIN_OP_GEQ:
+         name = ">=";
+         break;
+      case mBIN_OP_LEQ:
+         name = "<=";
+         break;
       }
       printf("ExprBinOp %s {\n", name);
       mexpr_print(e->as.bin_op.lhs, ind + 1);
@@ -132,7 +358,9 @@ void mexpr_print(struct mexpr *e, int ind) {
    case mEXPR_CALL:
       puts("ExprCall {");
       mexpr_print(e->as.call.decl, ind + 1);
-      mexpr_print(e->as.call.args, ind + 1);
+      if (e->as.call.args) {
+         mexpr_print(e->as.call.args, ind + 1);
+      }
       indent(ind);
       puts("}");
       break;
@@ -145,10 +373,56 @@ void mexpr_print(struct mexpr *e, int ind) {
       indent(ind);
       puts("}");
       break;
+   case mEXPR_OPERATION:
+      printf("ExprOperation {\n");
+      mstmt_print(e->as.operation.stmts, ind + 1);
+      indent(ind);
+      puts("}");
+      break;
    }
 
 end:
    if (e->next) {
       mexpr_print(e->next, ind);
+   }
+}
+
+void mstmt_print(struct mstmt *s, int ind) {
+   indent(ind);
+
+   switch (s->kind) {
+   case mSTMT_INVAL:
+      puts("Stmt is Invalid");
+      break;
+   case mSTMT_DEF:
+      puts("StmtDef {");
+      mdecl_print(s->as.def.decl, ind + 1);
+      mexpr_print(s->as.def.init, ind + 1);
+      indent(ind);
+      puts("}");
+      break;
+   case mSTMT_ASSIGN:
+      puts("StmtAssign {");
+      mexpr_print(s->as.assign.decl, ind + 1);
+      mexpr_print(s->as.assign.expr, ind + 1);
+      indent(ind);
+      puts("}");
+      break;
+   case mSTMT_RESULT:
+      puts("StmtResult {");
+      mexpr_print(s->as.result.expr, ind + 1);
+      indent(ind);
+      puts("}");
+      break;
+   case mSTMT_DEL:
+      puts("StmtDel {");
+      mexpr_print(s->as.result.expr, ind + 1);
+      indent(ind);
+      puts("}");
+      break;
+   }
+
+   if (s->next) {
+      mstmt_print(s->next, ind);
    }
 }

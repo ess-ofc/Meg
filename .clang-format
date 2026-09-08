@@ -89,7 +89,7 @@ PPIndentWidth: 3
 PackConstructorInitializers: Never
 PointerAlignment: Right
 ReferenceAlignment: Right
-ReflowComments: false
+ReflowComments: true
 RequiresClausePosition: WithPreceding
 SeparateDefinitionBlocks: Leave
 SkipMacroDefinitionBody: true

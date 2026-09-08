@@ -9,6 +9,7 @@
 
 #include <megc/loc.h>
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* Unit. */
@@ -18,38 +19,43 @@ struct munit {
    struct mdecl *decls;
 };
 
+void munit_del(struct munit *self);
+
 /* Concepts. */
 
+enum mtype_kind {
+   mTYPE_INVAL = 0,
+   mTYPE_IDENT,
+   mTYPE_STRUCT,
+   mTYPE_ARRAY,
+   mTYPE_SLICE
+};
+
 struct mtype {
-   const char *name;
-   bool mut;
-};
-
-/* Declarations. */
-
-enum mdecl_kind {
-   mDECL_INVAL = 0,
-   mDECL_FUNC,
-   mDECL_OBJ
-};
-
-struct mdecl {
-   struct mdecl *next;
-   struct mloc loc;
-   const char *id;
-   struct mtype types;
    union {
-      struct mtype_decl {
-         struct mdecl *decls;
-      } type;
+      struct mident {
+         const char *name;
+      } ident;
 
-      struct mfunc_decl {
-         struct mdecl *params;
-         struct mexpr *expr;
-      } func;
+      struct mstruct {
+         struct mdecl *fields;
+      } struc;
+
+      struct marray {
+         struct mtype *type;
+         struct mexpr *size;
+      } array;
+
+      struct mslice {
+         struct mtype *szty;
+         struct mtype *rgty;
+      } slice;
    } as;
-   enum mdecl_kind kind;
+   bool mut;
+   enum mtype_kind kind;
 };
+
+void mtype_del(struct mtype *self);
 
 /* Expressions. */
 
@@ -60,7 +66,8 @@ enum mexpr_kind {
    mEXPR_DECL_REF,
    mEXPR_CALL,
    mEXPR_LIT,
-   mEXPR_PAREN
+   mEXPR_PAREN,
+   mEXPR_OPERATION
 };
 
 enum mbin_op_kind {
@@ -74,7 +81,13 @@ enum mbin_op_kind {
    mBIN_OP_BOR,
    mBIN_OP_EOR,
    mBIN_OP_LAND,
-   mBIN_OP_LOR
+   mBIN_OP_LOR,
+   mBIN_OP_EQL,
+   mBIN_OP_NEQ,
+   mBIN_OP_GTR,
+   mBIN_OP_LSS,
+   mBIN_OP_GEQ,
+   mBIN_OP_LEQ
 };
 
 enum muna_op_kind {
@@ -112,7 +125,7 @@ struct mexpr {
       } decl_ref;
 
       struct mcall {
-         struct mexpr *decl;  // Any callable type expr.
+         struct mexpr *decl;  // Any callable expr.
          struct mexpr *args;
       } call;
 
@@ -124,22 +137,62 @@ struct mexpr {
       struct mparen {
          struct mexpr *child;
       } paren;
+
+      struct moperation {
+         struct mstmt *stmts;
+      } operation;
    } as;
    enum mexpr_kind kind;
 };
 
+void mexpr_del(struct mexpr *self);
+
+/* Declarations. */
+
+enum mdecl_kind {
+   mDECL_INVAL = 0,
+   mDECL_FUNC,
+   mDECL_OBJ
+};
+
+struct mdecl {
+   struct mdecl *next;
+   struct mloc loc;
+   const char *id;
+   struct mtype *type;
+   union {
+      struct mfunc_decl {
+         struct mdecl *params;
+         struct mexpr *expr;
+      } func;
+   } as;
+   enum mdecl_kind kind;
+};
+
+void mdecl_del(struct mdecl *self);
+
 /* Statements. */
+
+enum mstmt_kind {
+   mSTMT_INVAL = 0,
+   mSTMT_DEF,
+   mSTMT_ASSIGN,
+   mSTMT_RESULT,
+   mSTMT_DEL
+};
 
 struct mstmt {
    struct mstmt *next;
    struct mloc loc;
    union {
       struct mdef {
-         const char *id;
+         struct mdecl *decl;
+         struct mexpr *init;
       } def;
 
       struct massign {
-         uint64_t id;
+         struct mexpr *decl;
+         struct mexpr *expr;
       } assign;
 
       struct mnew {
@@ -148,15 +201,19 @@ struct mstmt {
       } new;
 
       struct mdel {
-         int _;
+         struct mexpr *expr;
       } del;
 
       struct mresult {
-         int _;
+         struct mexpr *expr;
       } result;
    } as;
+   enum mstmt_kind kind;
 };
+
+void mstmt_del(struct mstmt *self);
 
 void munit_print(struct munit *u);
 void mdecl_print(struct mdecl *e, int ind);
 void mexpr_print(struct mexpr *e, int ind);
+void mstmt_print(struct mstmt *s, int ind);
