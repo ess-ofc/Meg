@@ -7,6 +7,6 @@
 
 #pragma once
 
-struct munit *mparse_unit(
-   const char *unit_name
-);
+#include <megc/ast.h>
+
+bool manalyze(struct munit *unit);

@@ -18,9 +18,9 @@ struct mstrentry {
 
 /*
  * This struct is purpused only
- * to store string and avoid
+ * to store strings and avoid
  * allocating too many memory
- * for it.
+ * for them.
  */
 struct mstrpool {
    unsigned count;

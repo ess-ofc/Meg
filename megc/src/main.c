@@ -8,6 +8,7 @@
 #include <megc/diagno.h>
 #include <megc/main.h>
 #include <megc/parser.h>
+#include <megc/sema.h>
 
 const char *progname = "megc";
 const char *ouputname = "a.out";
@@ -62,6 +63,10 @@ int main(int argc, char *argv[]) {
       return 1;
    }
 
-   mparse_unit(src);
+   auto unit = mparse_unit(src);
+   if (unit) {
+      manalyze(unit);
+      munit_del(unit);
+   }
    return 0;
 }

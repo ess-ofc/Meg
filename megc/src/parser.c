@@ -966,7 +966,7 @@ end:
    return ret;
 }
 
-bool mparse_unit(const char *src) {
+struct munit *mparse_unit(const char *src) {
    /* The file exists? */
    FILE *file = fopen(src, "r");
    if (!file) {
@@ -975,7 +975,7 @@ bool mparse_unit(const char *src) {
          src,
          strerror(errno)
       );
-      return false;
+      return nullptr;
    }
 
    /* Gets the file size. */
@@ -999,12 +999,8 @@ bool mparse_unit(const char *src) {
    auto unit = parse_unit(&self);
    unit->name = src;
 
-   /* Print! */
-   munit_print(unit);
-
-   munit_del(unit);
    mstrpool_del(&strpool);
    fclose(file);
    free(buf);
-   return true;
+   return unit;
 }

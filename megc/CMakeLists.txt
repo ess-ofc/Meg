@@ -4,6 +4,8 @@ target_sources(
    PUBLIC
    FILE_SET HEADERS BASE_DIRS include
       FILES
+      include/megc/declmap.h
+      include/megc/sema.h
       include/megc/strpool.h
       include/megc/parser.h
       include/megc/lexer.h
@@ -13,6 +15,8 @@ target_sources(
       include/megc/diagno.h
       include/megc/main.h
    PRIVATE
+   src/declmap.c
+   src/sema.c
    src/strpool.c
    src/parser.c
    src/lexer.c

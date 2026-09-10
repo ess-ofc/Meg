@@ -62,7 +62,7 @@ static struct mstrentry *insert(
    }
 }
 
-static void check_table_size(struct mstrpool *self) {
+static void checksize(struct mstrpool *self) {
    if ((double) self->count / self->size <= 0.80) {
       return;
    }
@@ -100,10 +100,8 @@ const char *mstrpool_insert(
    const char *str,
    size_t size
 ) {
-   check_table_size(self);
+   checksize(self);
 
    uint64_t hash = XXH3_64bits(str, size);
-   struct mstrentry *ret = insert(self, str, size, hash);
-
-   return ret->str;
+   return insert(self, str, size, hash)->str;
 }
