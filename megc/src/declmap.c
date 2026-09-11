@@ -15,7 +15,7 @@ struct mdeclmap mdeclmap_new() {
    ret.size = 4;
    ret.count = 0;
    ret.array = calloc(
-      ret.count,
+      ret.size,
       sizeof(struct mdeclentry)
    );
    return ret;
@@ -31,11 +31,11 @@ static void checksize(struct mdeclmap *self) {
       size_t olds = self->size;
       auto olda = self->array;
 
-      /* Resetz the array. */
+      /* Resets the array. */
       self->count = 0;
       self->size *= 2;
       self->array = calloc(
-         self->count,
+         self->size,
          sizeof(struct mdeclentry)
       );
 
@@ -57,7 +57,7 @@ struct mdecl *mdeclmap_get(
 ) {
    size_t len = strlen(id);
    uint64_t hash = XXH3_64bits(id, len);
-   size_t pos = hash % self->count;
+   size_t pos = hash % self->size;
 
    size_t psl = 0;
    auto bukp = &self->array[pos];
@@ -66,7 +66,11 @@ struct mdecl *mdeclmap_get(
          if (
             bukp->hash == hash &&
             bukp->len == len &&
-            strcmp(bukp->decl->id, id)
+            strncmp(
+               bukp->decl->id,
+               id,
+               len
+            ) == 0
          ) {
             return bukp->decl;
          }
@@ -78,6 +82,7 @@ struct mdecl *mdeclmap_get(
          psl++;
          pos = (pos + 1) % self->size;
          bukp = &self->array[pos];
+         continue;
       }
 
       return nullptr;
@@ -105,7 +110,11 @@ bool mdeclmap_set(
          if (
             bukp->hash == hash &&
             bukp->len == len &&
-            strcmp(bukp->decl->id, decl->id)
+            strncmp(
+               bukp->decl->id,
+               decl->id,
+               len
+            ) == 0
          ) {
             return false;
          }
@@ -114,7 +123,6 @@ bool mdeclmap_set(
             auto tmp = *bukp;
             *bukp = buk;
             buk = tmp;
-            continue;
          }
       } else {
          *bukp = buk;

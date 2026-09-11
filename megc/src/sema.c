@@ -8,6 +8,7 @@
 #include <megc/declmap.h>
 #include <megc/diagno.h>
 #include <megc/sema.h>
+#include <megc/typedef.h>
 
 #include <assert.h>
 #include <malloc.h>
@@ -50,6 +51,27 @@ static void delscope(
    self->scope = s->parent;
    mdeclmap_del(&s->decls);
    free(s);
+}
+
+static bool pushdecl(
+   struct analyzer *self,
+   struct mdecl *decl
+) {
+   /* Does it exist? */
+   auto x = mdeclmap_get(
+      &self->scope->decls,
+      decl->id
+   );
+   if (x) {
+      mferro(decl->loc, "'%s' already exists.", decl->id);
+      mfnote(x->loc, "Declared here.");
+      return false;
+   }
+
+   return mdeclmap_set(
+      &self->scope->decls,
+      decl
+   );
 }
 
 void anexpr(struct mexpr *expr) {
@@ -119,15 +141,62 @@ void andecl(struct mdecl *decl) {
    case mDECL_OBJ:
       break;
 
+   case mDECL_TYPE:
+      break;
+
    case mDECL_INVAL:
    }
+}
+
+static void newprimitive(
+   struct analyzer *self,
+   const char *id,
+   size_t size
+) {
+   struct mtypedef *def = malloc(sizeof *def);
+   struct mdecl *decl = malloc(sizeof *decl);
+   *def = (struct mtypedef){
+      .kind = mTYPEDEF_PRIMITIVE,
+      .as.primitive.size = size
+   };
+   *decl = (struct mdecl){
+      .kind = mDECL_TYPE,
+      .id = id,
+      .as.type.def = def
+   };
+
+   pushdecl(self, decl);
+   return;
+}
+
+static void init(struct analyzer *self) {
+   /* Initializes self. */
+   *self = (struct analyzer){};
+
+   /* Creates the unit scope. */
+   newscope(self, SCOPE_UNIT);
+
+   /* Declares primitives. */
+   /* Integers */
+   newprimitive(self, "i08", 1);
+   newprimitive(self, "i16", 2);
+   newprimitive(self, "i32", 4);
+   newprimitive(self, "i64", 8);
+}
+
+static void dnit(struct analyzer *self) {
+   assert(!self->scope->parent && "Too many scopes");
+
+   delscope(self);
 }
 
 bool manalyze(struct munit *unit) {
    minfo("Analyzing the '%s' unit.", unit->name);
 
-   struct analyzer self = {};
-   newscope(&self, SCOPE_UNIT);
+   struct analyzer self;
+   init(&self);
+
+   newprimitive(&self, "i08", 0);
 
    auto decl = unit->decls;
    while (decl) {
@@ -135,6 +204,6 @@ bool manalyze(struct munit *unit) {
       decl = decl->next;
    }
 
-   delscope(&self);
+   dnit(&self);
    return true;
 }

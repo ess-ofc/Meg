@@ -108,6 +108,11 @@ void mdecl_del(struct mdecl *self) {
        * have memory allocations.
        */
       break;
+   case mDECL_TYPE:
+      if (self->as.type.def) {
+         free(self->as.type.def);
+      }
+      break;
    case mDECL_FUNC:
       if (self->as.func.params) {
          mdecl_del(self->as.func.params);
@@ -228,6 +233,9 @@ void mdecl_print(struct mdecl *d, int ind) {
    switch (d->kind) {
    case mDECL_INVAL:
       puts("Decl is Invalid");
+      break;
+   case mDECL_TYPE:
+      printf("DeclType '%s'\n", d->id);
       break;
    case mDECL_FUNC:
       printf("DeclFunc '%s' {\n", d->id);

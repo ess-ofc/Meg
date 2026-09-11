@@ -32,6 +32,9 @@ enum mtype_kind {
 };
 
 struct mtype {
+   /* Set in typecheck. */
+   struct mtypedef *def;
+
    union {
       struct mident {
          const char *name;
@@ -51,8 +54,8 @@ struct mtype {
          struct mtype *rgty;
       } slice;
    } as;
-   bool mut;
    enum mtype_kind kind;
+   bool mut;
 };
 
 void mtype_del(struct mtype *self);
@@ -151,6 +154,7 @@ void mexpr_del(struct mexpr *self);
 
 enum mdecl_kind {
    mDECL_INVAL = 0,
+   mDECL_TYPE,
    mDECL_FUNC,
    mDECL_OBJ
 };
@@ -161,7 +165,12 @@ struct mdecl {
    const char *id;
    struct mtype *type;
    union {
-      struct mfunc_decl {
+      /* For aliases and primitives. */
+      struct mtypedecl {
+         struct mtypedef *def;
+      } type;
+
+      struct mfunc {
          struct mdecl *params;
          struct mexpr *expr;
       } func;

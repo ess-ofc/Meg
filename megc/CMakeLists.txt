@@ -4,6 +4,7 @@ target_sources(
    PUBLIC
    FILE_SET HEADERS BASE_DIRS include
       FILES
+      include/megc/typedef.h
       include/megc/declmap.h
       include/megc/sema.h
       include/megc/strpool.h
