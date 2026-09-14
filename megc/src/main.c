@@ -5,9 +5,11 @@
  * ======================================
  */
 
+#include <megc/ast.h>
 #include <megc/diagno.h>
 #include <megc/main.h>
 #include <megc/parser.h>
+#include <megc/strpool.h>
 
 const char *progname = "megc";
 const char *ouputname = "a.out";
@@ -62,6 +64,13 @@ int main(int argc, char *argv[]) {
       return 1;
    }
 
-   mparse_unit(src);
+   auto strpool = mstrpool_new();
+   auto unit = mparse_unit(src, &strpool);
+   if (unit) {
+      mprunit(unit);
+      munit_del(unit);
+   }
+
+   mstrpool_del(&strpool);
    return 0;
 }

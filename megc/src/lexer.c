@@ -132,7 +132,8 @@ static struct mtoken getid(
    return (struct mtoken){
       .kind = iskeyword(beg, len),
       .loc = loc,
-      .lit = entry
+      .lit = entry,
+      .data = len
    };
 }
 
@@ -180,11 +181,14 @@ static char getscape(struct mlexer *self) {
    }
 }
 
-static const char *getstr(struct mlexer *self) {
-   struct mloc loc = {
-      .filename = self->fname,
-      .line = self->line,
-      .column = self->column
+static struct mtoken getstr(struct mlexer *self) {
+   struct mtoken ret = {
+      .loc = {
+         .filename = self->fname,
+         .line = self->line,
+         .column = self->column
+      },
+      .kind = mTOK_STRING
    };
 
    char str[16 * 1024];
@@ -197,19 +201,19 @@ static const char *getstr(struct mlexer *self) {
       }
 
       if (len >= sizeof str) {
-         mferro(loc, "String too large.");
+         mferro(ret.loc, "String too large.");
          str[sizeof str - 1] = '\0';
 
          /* skipuntil 'gambiarra'. */
          while (c != '"') {
             c = next(self);
             if (c == '\0' || c == '\n') {
-               auto cloc = loc;
+               auto cloc = ret.loc;
                cloc.column = self->column;
                mferro(cloc, "Unterminated string.");
                readuntil(self, '"');  // Tries to find '"'.
                next(self);
-               return nullptr;
+               goto inval;
             }
          }
          break;
@@ -218,12 +222,12 @@ static const char *getstr(struct mlexer *self) {
       switch (c) {
       case '\n':
       case '\0':
-         auto cloc = loc;
+         auto cloc = ret.loc;
          cloc.column = self->column;
          mferro(cloc, "Unterminated string literal.");
          readuntil(self, '"');  // Tries to find '"'.
          next(self);
-         return nullptr;
+         goto inval;
 
       case '\\':
          c = getscape(self);
@@ -238,11 +242,17 @@ static const char *getstr(struct mlexer *self) {
    }
 
    // Inserts the string in the pool.
-   return mstrpool_insert(
+   ret.data = len;
+   ret.lit = mstrpool_insert(
       self->strpool,
       str,
       len
    );
+   return ret;
+
+inval:
+   ret.kind = mTOK_INVAL;
+   return ret;
 }
 
 static struct mtoken getnum(struct mlexer *self) {
@@ -256,7 +266,7 @@ static struct mtoken getnum(struct mlexer *self) {
    };
 
    char c = cur(self);
-   int base = 10;
+   size_t base = 10;
    bool f = false;  // Is float.
    const char *bname = "decimal";
 
@@ -284,11 +294,12 @@ static struct mtoken getnum(struct mlexer *self) {
          break;
       }
    }
+   ret.data = base;
 
    char buf[1024];
    size_t busz = 0;
    bool issep = false;
-   int64_t val = 0;
+   unsigned val = 0;
    while (true) {
       auto cloc = ret.loc;
       cloc.column++;
@@ -298,6 +309,14 @@ static struct mtoken getnum(struct mlexer *self) {
          goto final;
 
       case '.':
+         if (base != 10) {
+            mferro(
+               ret.loc,
+               "Floating point literas can't be %s.",
+               bname
+            );
+         }
+
          if (f) {
             mferro(cloc, "Extra '.'.");
          } else {
@@ -481,9 +500,7 @@ again:
       break;
    case '"':
       next(self);
-      ret.kind = mTOK_STRING;
-      ret.lit = getstr(self);
-      goto end;
+      return getstr(self);
    case '\'':
       ret.kind = mTOK_CHAR;
       char ch;

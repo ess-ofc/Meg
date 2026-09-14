@@ -113,20 +113,125 @@ again:
    }
 }
 
-/* Concepts. */
+static struct mdecl *parse_objdecl(
+   struct parser *self
+);
+static struct mexpr *parse_expr(
+   struct parser *self,
+   int prec
+);
 
-static struct mtype *parse_type(struct parser *self) {
-   struct mtoken tok;
-   struct mtype *ret = malloc(sizeof *ret);
-   *ret = (struct mtype){};
+/* Type. */
 
-   if (expect(self, &tok, mTOK_MUT)) {
-      ret->mut = true;
+static struct mhint *parse_hint(struct parser *self) {
+   struct mtoken tok = cur(self);
+   struct mhint *ret = malloc(sizeof *ret);
+   *ret = (struct mhint){
+      .loc = tok.loc
+   };
+
+   if (tok.kind == mTOK_AND) {
+      ret->mode = mMODE_REF;
+      tok = advance(self);
+   } else if (tok.kind == mTOK_DOLLAR) {
+      ret->mode = mMODE_POSS;
+      tok = advance(self);
    }
 
-   if (expect(self, &tok, mTOK_ID)) {
-      ret->kind = mTYPE_IDENT;
-      ret->as.ident.name = tok.lit;
+   tok = cur(self);
+   if (tok.kind == mTOK_MUT) {
+      ret->qual = mQUAL_MUT;
+      tok = advance(self);
+   }
+
+   /*
+    * Maybe structure, array
+    * or slice.
+    */
+   if (tok.kind == mTOK_LBRCKT) {
+      advance(self);
+      tok = nxtvalid(self);
+
+      if (
+         tok.kind == mTOK_RBRCKT ||
+         (tok.kind == mTOK_ID &&
+            nxt(self).kind == mTOK_COLON)
+      ) {
+         /*
+          * Is an object declaration,
+          * that is, a structure of
+          * objects.
+          */
+         ret->kind = mHINT_STRUCT;
+
+         auto struc = &ret->as.struc;
+         struc->scope = malloc(sizeof *struc->scope);
+         *struc->scope = mdeclmap_new();
+
+         while (!expect(self, &tok, mTOK_RBRCKT)) {
+            auto field = parse_objdecl(self);
+            if (!field) {
+               skipuntil(self, mTOK_RBRCKT);
+               advance(self);
+               break;
+            }
+
+            mdeclmap_set(struc->scope, field);
+
+            if (expect(self, &tok, mTOK_COMMA)) {
+               if (cur(self).kind == mTOK_RBRCKT) {
+                  mfwarn(tok.loc, "Dangling comma.");
+                  break;
+               }
+            }
+         }
+      } else if (expect(self, &tok, mTOK_TILDE)) {
+         /*
+          * Is a slice, the syntax is:
+          * [~] <type hint>
+          * EXAMPLE An slice of type i32,
+          *         size is a u64.
+          * [~] i32
+          */
+         ret->kind = mHINT_SLICE;
+
+         if (!expect(self, &tok, mTOK_RBRCKT)) {
+            mferro(tok.loc, "Expected ']'.");
+         } else {
+            auto slice = &ret->as.slice;
+            slice->type = parse_hint(self);
+            if (!slice->type->kind) {
+               mferro(slice->type->loc, "May not infer a slice type.");
+            }
+         }
+      } else {
+         /*
+          * Should be an array,
+          * The syntax is:
+          * [<expr>] <type hint>
+          * EXAMPLE An i32 array of
+          *         size 4.
+          * [4] i32
+          */
+         ret->kind = mHINT_ARRAY;
+
+         auto array = &ret->as.array;
+         nxtvalid(self);
+         array->size = parse_expr(self, 0);
+         if (!expect(self, &tok, mTOK_RBRCKT)) {
+            mferro(tok.loc, "Expected ']'.");
+         } else {
+            array->type = parse_hint(self);
+            if (!array->type->kind) {
+               mferro(array->type->loc, "May not infer an array type.");
+            }
+         }
+      }
+
+   } else if (expect(self, &tok, mTOK_ID)) {
+      /* Is an una articulation. */
+      ret->kind = mHINT_UNA;
+      ret->as.una.id = tok.lit;
    }
 
    return ret;
@@ -147,10 +252,6 @@ struct expr {
    );
 };
 
-static struct mexpr *parse_expr(
-   struct parser *self,
-   int prec
-);
 static struct mexpr *parse_bin_op(
    struct parser *self,
    struct mtoken tok,
@@ -234,7 +335,7 @@ static struct expr LED_OPS[mTOK_MAX] = {
    [mTOK_DIV] = {80, nullptr, parse_bin_op},
    [mTOK_MOD] = {80, nullptr, parse_bin_op},
 
-   [mTOK_LPAREN] = {100, nullptr, parse_call},
+   [mTOK_LPAREN] = {100, nullptr, parse_call}
 };
 
 static struct mstmt *parse_result(
@@ -458,7 +559,7 @@ static struct mexpr *parse_lit(
       .loc = tok.loc,
       .as.lit = {
          .kind = mLIT_INTEGER,
-         .buf = tok.lit
+         .as.uneva.buf = tok.lit
       }
    };
 
@@ -645,7 +746,7 @@ static struct mexpr *parse_expr(
 
 static struct mdecl *parse_objdecl(struct parser *self) {
    /*
-    * Object declarations syntax
+    * Object declaration syntax
     * is as follows:
     * [ID][COLON] <type> [ASSIGN: optional] <expr>
     */
@@ -656,7 +757,8 @@ static struct mdecl *parse_objdecl(struct parser *self) {
    struct mdecl *ret = malloc(sizeof *ret);
    *ret = (struct mdecl){
       .kind = mDECL_OBJ,
-      .id = tok.lit
+      .id = tok.lit,
+      .loc = tok.loc
    };
 
    /* Skips the id and colon. */
@@ -666,7 +768,7 @@ static struct mdecl *parse_objdecl(struct parser *self) {
       goto inval;
    }
 
-   ret->type = parse_type(self);
+   ret->type = parse_hint(self);
    return ret;
 
 inval:
@@ -674,8 +776,9 @@ inval:
    return ret;
 }
 
-static struct mdecl *parse_initlist(
+static bool parse_initlist(
    struct parser *self,
+   struct mdeclmap *scope,
    enum mtoken_kind ter  // Terminator.
 ) {
    /*
@@ -685,22 +788,16 @@ static struct mdecl *parse_initlist(
     * default initialized.
     */
    struct mtoken tok = cur(self);
-   struct mdecl *fst = nullptr, *lst = fst;
    while (tok.kind == mTOK_ID) {
       auto obj = parse_objdecl(self);
-      if (!fst) {
-         fst = obj;
-         lst = fst;
-      } else {
-         lst->next = obj;
-         lst = obj;
-      }
 
-      if (lst->kind == mDECL_INVAL) {
+      if (obj->kind == mDECL_INVAL) {
          /* The state may be corrupted, skip. */
          skipuntil(self, ter);
-         return fst;
+         return false;
       }
+
+      mdeclmap_set(scope, obj);
 
       if (expect(self, &tok, mTOK_COMMA)) {
          tok = nxtvalid(self);
@@ -717,7 +814,7 @@ static struct mdecl *parse_initlist(
       mferro(self->fst.loc, "Expected ')'.");
       skipuntil(self, ter);
    }
-   return fst;
+   return true;
 }
 
 static struct mdecl *parse_func(struct parser *self) {
@@ -735,13 +832,16 @@ static struct mdecl *parse_func(struct parser *self) {
       .id = tok.lit
    };
 
+   auto func = &ret->as.func;
+   func->scope = malloc(sizeof *func->scope);
+   *func->scope = mdeclmap_new();
+
    advance(self);
    tok = advance(self);
 
    /* Parses all the parameters if any. */
    if (!expect(self, &tok, mTOK_RPAREN)) {
-      ret->as.func.params =
-         parse_initlist(self, mTOK_RPAREN);
+      parse_initlist(self, func->scope, mTOK_RPAREN);
    }
 
    tok = cur(self);
@@ -751,11 +851,11 @@ static struct mdecl *parse_func(struct parser *self) {
       goto inval;
    }
    advance(self);
-   ret->type = parse_type(self);
+   ret->type = parse_hint(self);
 
    if (!eol(self, &tok)) {
       if (expect(self, &tok, mTOK_ASSIGN)) {
-         ret->as.func.expr = parse_expr(self, 0);
+         func->expr = parse_expr(self, 0);
       } else {
          mferro(tok.loc, "Expected the end of the line.");
          skipuntil(self, mTOK_EOL);
@@ -905,12 +1005,17 @@ inval:
 
 /* Unit */
 
-static struct munit *parse_unit(struct parser *self) {
+static struct munit *parse_unit(
+   struct parser *self,
+   const char *name
+) {
    struct munit *ret = malloc(sizeof *ret);
    auto tok = advance(self);
-   *ret = (struct munit){};
+   *ret = (struct munit){
+      .name = name,
+      .scope = mdeclmap_new()
+   };
 
-   struct mdecl *fst = nullptr, *lst = fst;
    while (true) {
       switch (tok.kind) {
       case mTOK_INVAL:
@@ -938,13 +1043,7 @@ static struct munit *parse_unit(struct parser *self) {
 
          case mTOK_LPAREN:
             auto fdecl = parse_func(self);
-            if (!fst) {
-               fst = fdecl;
-               lst = fst;
-            } else {
-               lst->next = fdecl;
-               lst = fdecl;
-            }
+            mdeclmap_set(&ret->scope, fdecl);
             break;
 
          default:
@@ -962,11 +1061,13 @@ static struct munit *parse_unit(struct parser *self) {
    }
 
 end:
-   ret->decls = fst;
    return ret;
 }
 
-bool mparse_unit(const char *src) {
+struct munit *mparse_unit(
+   const char *src,
+   struct mstrpool *strpool
+) {
    /* The file exists? */
    FILE *file = fopen(src, "r");
    if (!file) {
@@ -975,7 +1076,7 @@ bool mparse_unit(const char *src) {
          src,
          strerror(errno)
       );
-      return false;
+      return nullptr;
    }
 
    /* Gets the file size. */
@@ -989,22 +1090,16 @@ bool mparse_unit(const char *src) {
    buf[filesz] = '\0';
 
    /* Creates a instance. */
-   struct mstrpool strpool = mstrpool_new();
    struct parser self = {
-      .lex = mlexer_new(&strpool, src, buf, filesz),
+      .lex = mlexer_new(strpool, src, buf, filesz),
       .buf = buf
    };
 
    /* Parse! */
-   auto unit = parse_unit(&self);
+   auto unit = parse_unit(&self, src);
    unit->name = src;
 
-   /* Print! */
-   munit_print(unit);
-
-   munit_del(unit);
-   mstrpool_del(&strpool);
    fclose(file);
    free(buf);
-   return true;
+   return unit;
 }
