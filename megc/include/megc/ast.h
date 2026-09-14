@@ -251,8 +251,8 @@ struct mstmt {
 
 void mstmt_del(struct mstmt *self);
 
-void munit_print(struct munit *u);
-void mhint_print(struct mhint *t, int ind);
-void mdecl_print(struct mdecl *d, int ind);
-void mexpr_print(struct mexpr *e, int ind);
-void mstmt_print(struct mstmt *s, int ind);
+void mprunit(struct munit *u);
+void mprhint(struct mhint *h);
+void mprdecl(struct mdecl *d);
+void mprexpr(struct mexpr *e);
+void mprstmt(struct mstmt *s);

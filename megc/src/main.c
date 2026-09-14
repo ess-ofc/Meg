@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
    auto strpool = mstrpool_new();
    auto unit = mparse_unit(src, &strpool);
    if (unit) {
-      munit_print(unit);
+      mprunit(unit);
       munit_del(unit);
    }
 
