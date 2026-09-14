@@ -9,6 +9,11 @@
 
 #include <stddef.h>
 
+enum mcategory {
+   mCATEGORY_INVAL = 0,
+   mCATEGORY_INTEGER
+};
+
 enum mtypedef_kind {
    mTYPEDEF_INVAL = 0,
    mTYPEDEF_PRIMITIVE
@@ -21,4 +26,5 @@ struct mtypedef {
       } primitive;
    } as;
    enum mtypedef_kind kind;
+   enum mcategory categ;
 };

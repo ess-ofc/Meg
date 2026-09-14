@@ -7,11 +7,11 @@
 
 #pragma once
 
-#include <megc/ast.h>
-
 #include <stddef.h>
+#include <stdint.h>
 
 struct mdeclentry {
+   struct mdeclentry *next;
    uint64_t hash;
    size_t psl, len;
    struct mdecl *decl;
@@ -25,6 +25,15 @@ struct mdeclentry {
 struct mdeclmap {
    size_t size, count;
    struct mdeclentry *array;
+
+   /*
+    * We the order that the
+    * declarations was set.
+    * `fst` to the first and
+    * `lst` points to the
+    * last declaration set.
+    */
+   struct mdeclentry *fst, *lst;
 };
 
 struct mdeclmap mdeclmap_new();

@@ -5,15 +5,17 @@
  * ======================================
  */
 
+#include <megc/ast.h>
 #include <megc/declmap.h>
 
 #include <malloc.h>
 #include <xxh3.h>
 
 struct mdeclmap mdeclmap_new() {
-   struct mdeclmap ret;
-   ret.size = 4;
-   ret.count = 0;
+   struct mdeclmap ret = {
+      .size = 4,
+      .count = 0
+   };
    ret.array = calloc(
       ret.size,
       sizeof(struct mdeclentry)
@@ -28,7 +30,6 @@ void mdeclmap_del(struct mdeclmap *self) {
 static void checksize(struct mdeclmap *self) {
    if ((float) self->count / self->size > 0.80) {
       /* Old size and array. */
-      size_t olds = self->size;
       auto olda = self->array;
 
       /* Resets the array. */
@@ -40,10 +41,10 @@ static void checksize(struct mdeclmap *self) {
       );
 
       /* Remaps every valid entry. */
-      for (size_t i = 0; i < olds; i++) {
-         if (olda[i].decl) {
-            mdeclmap_set(self, olda[i].decl);
-         }
+      auto bukp = self->fst;
+      while (bukp) {
+         mdeclmap_set(self, bukp->decl);
+         bukp = bukp->next;
       }
 
       /* Frees the old array. */
@@ -51,7 +52,7 @@ static void checksize(struct mdeclmap *self) {
    }
 }
 
-struct mdecl *mdeclmap_get(
+static struct mdeclentry *get(
    struct mdeclmap *self,
    const char *id
 ) {
@@ -72,7 +73,7 @@ struct mdecl *mdeclmap_get(
                len
             ) == 0
          ) {
-            return bukp->decl;
+            return bukp;
          }
 
          if (bukp->psl < psl) {
@@ -135,5 +136,24 @@ bool mdeclmap_set(
    }
 
    self->count++;
+   if (self->lst) {
+      self->lst->next = bukp;
+      self->lst = bukp;
+   } else {
+      self->fst = bukp;
+      self->lst = bukp;
+   }
    return true;
+}
+
+struct mdecl *mdeclmap_get(
+   struct mdeclmap *self,
+   const char *id
+) {
+   auto x = get(self, id);
+   if (x) {
+      return x->decl;
+   }
+
+   return nullptr;
 }

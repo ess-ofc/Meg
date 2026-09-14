@@ -5,45 +5,62 @@
  * ======================================
  */
 
+// TODO: Rewrite all the AST print system.
+
 #include <megc/ast.h>
 
 #include <malloc.h>
 #include <stdio.h>
 
+void prmap(struct mdeclmap *map, int ind) {
+   auto a = map->array;
+   for (size_t i = 0; i < map->size; i++) {
+      if (a[i].decl) {
+         mdecl_print(a[i].decl, ind);
+      }
+   }
+}
+
+void delmap(struct mdeclmap *map) {
+   auto bukp = map->fst;
+   while (bukp) {
+      mdecl_del(bukp->decl);
+      bukp = bukp->next;
+   }
+
+   mdeclmap_del(map);
+}
+
 void munit_del(struct munit *self) {
-   mdecl_del(self->decls);
+   delmap(&self->scope);
    free(self);
 }
 
-void mtype_del(struct mtype *self) {
+void mhint_del(struct mhint *self) {
    switch (self->kind) {
-   case mTYPE_INVAL:
+   case mHINT_INVAL:
       /*
        * Invalid nodes cannot
        * have memory allocations.
        */
       break;
-   case mTYPE_IDENT:
+   case mHINT_UNA:
       break;
-   case mTYPE_STRUCT:
-      if (self->as.struc.fields) {
-         mdecl_del(self->as.struc.fields);
-      }
+   case mHINT_STRUCT:
+      delmap(self->as.struc.scope);
+      free(self->as.struc.scope);
       break;
-   case mTYPE_ARRAY:
+   case mHINT_ARRAY:
       if (self->as.array.type) {
-         mtype_del(self->as.array.type);
+         mhint_del(self->as.array.type);
       }
       if (self->as.array.size) {
          mexpr_del(self->as.array.size);
       }
       break;
-   case mTYPE_SLICE:
-      if (self->as.slice.szty) {
-         mtype_del(self->as.slice.szty);
-      }
-      if (self->as.slice.rgty) {
-         mtype_del(self->as.slice.rgty);
+   case mHINT_SLICE:
+      if (self->as.slice.type) {
+         mhint_del(self->as.slice.type);
       }
       break;
    }
@@ -97,10 +114,6 @@ void mexpr_del(struct mexpr *self) {
 }
 
 void mdecl_del(struct mdecl *self) {
-   if (self->next) {
-      mdecl_del(self->next);
-   }
-
    switch (self->kind) {
    case mDECL_INVAL:
       /*
@@ -114,9 +127,8 @@ void mdecl_del(struct mdecl *self) {
       }
       break;
    case mDECL_FUNC:
-      if (self->as.func.params) {
-         mdecl_del(self->as.func.params);
-      }
+      delmap(self->as.func.scope);
+      free(self->as.func.scope);
       if (self->as.func.expr) {
          mexpr_del(self->as.func.expr);
       }
@@ -126,7 +138,7 @@ void mdecl_del(struct mdecl *self) {
    }
 
    if (self->type) {
-      mtype_del(self->type);
+      mhint_del(self->type);
    }
    free(self);
 }
@@ -182,49 +194,53 @@ static void indent(int ind) {
 
 void munit_print(struct munit *u) {
    printf("Unit '%s' {\n", u->name);
-   mdecl_print(u->decls, 1);
+   prmap(&u->scope, 1);
    puts("}");
 }
 
-void mtype_print(struct mtype *t, int ind) {
+void mhint_print(struct mhint *t, int ind) {
    indent(ind);
 
    switch (t->kind) {
-   case mTYPE_INVAL:
-      puts("Type is Invalid");
+   case mHINT_INVAL:
+      puts("Hint {");
       break;
-   case mTYPE_IDENT:
-      printf(
-         "TypeIdent %s, mut: %s\n",
-         t->as.ident.name,
-         t->mut ?
-            "true" :
-            "false"
-      );
+   case mHINT_UNA:
+      printf("HintUna '%s' {\n", t->as.una.id);
       break;
-   case mTYPE_STRUCT:
-      printf(
-         "TypeStruct, mut: %s {\n",
-         t->mut ? "true" : "false"
-      );
-      mdecl_print(t->as.struc.fields, ind + 1);
-      indent(ind);
-      puts("}");
+   case mHINT_STRUCT:
+      puts("HintStruct {");
+      prmap(t->as.struc.scope, ind + 1);
       break;
-   case mTYPE_ARRAY:
-      printf("TypeArray, mut: %s {\n", t->mut ? "true" : "false");
+   case mHINT_ARRAY:
+      puts("HintArray {");
       mexpr_print(t->as.array.size, ind + 1);
-      mtype_print(t->as.array.type, ind + 1);
-      indent(ind);
-      puts("}");
+      mhint_print(t->as.array.type, ind + 1);
       break;
-   case mTYPE_SLICE:
-      printf("TypeSlice, mut: %s {\n", t->mut ? "true" : "false");
-      mtype_print(t->as.slice.szty, ind + 1);
-      indent(ind + 1);
-      puts("}");
+   case mHINT_SLICE:
+      puts("HintSlice {");
+      mhint_print(t->as.slice.type, ind + 1);
       break;
    }
+
+   if (t->mode) {
+      indent(ind + 1);
+      puts(
+         t->mode == mMODE_REF ?
+            "mode &" :
+            "mode $"
+      );
+   }
+   if (t->qual) {
+      indent(ind + 1);
+      puts(
+         t->qual == mQUAL_MUT ?
+            "qual mut" :
+            "qual const"
+      );
+   }
+   indent(ind);
+   puts("}");
 }
 
 void mdecl_print(struct mdecl *d, int ind) {
@@ -240,12 +256,11 @@ void mdecl_print(struct mdecl *d, int ind) {
    case mDECL_FUNC:
       printf("DeclFunc '%s' {\n", d->id);
       if (d->type) {
-         mtype_print(d->type, ind + 1);
+         mhint_print(d->type, ind + 1);
       }
-      if (d->as.func.params) {
-         mdecl_print(d->as.func.params, ind + 1);
+      if (d->as.func.scope) {
+         prmap(d->as.func.scope, ind + 1);
       }
-
       if (d->as.func.expr) {
          mexpr_print(d->as.func.expr, ind + 1);
          indent(ind);
@@ -257,17 +272,13 @@ void mdecl_print(struct mdecl *d, int ind) {
       printf("DeclObj '%s'", d->id);
       if (d->type) {
          puts(" {");
-         mtype_print(d->type, ind + 1);
+         mhint_print(d->type, ind + 1);
          indent(ind);
          puts("}");
       } else {
          puts("");
       }
       break;
-   }
-
-   if (d->next) {
-      mdecl_print(d->next, ind);
    }
 }
 
@@ -373,7 +384,26 @@ void mexpr_print(struct mexpr *e, int ind) {
       puts("}");
       break;
    case mEXPR_LIT:
-      printf("ExprLit '%s'\n", e->as.lit.buf);
+      printf(
+         "ExprLit evaluated = %s, value = ",
+         e->as.lit.eval ? "true" : "false"
+      );
+      if (e->as.lit.eval) {
+         switch (e->as.lit.kind) {
+            break;
+         case mLIT_INTEGER:
+            printf("%zu\n", e->as.lit.as.i);
+            break;
+         case mLIT_FLOAT:
+            printf("%f\n", e->as.lit.as.f);
+            break;
+
+         default:
+            puts("UnsupportedLiteral");
+         }
+      } else {
+         puts(e->as.lit.as.uneva.buf);
+      }
       break;
    case mEXPR_PAREN:
       printf("ExprParen {\n");

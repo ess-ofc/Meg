@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <megc/declmap.h>
 #include <megc/loc.h>
 
 #include <stddef.h>
@@ -16,53 +17,69 @@
 
 struct munit {
    const char *name;
-   struct mdecl *decls;
+   struct mdeclmap scope;
 };
 
 void munit_del(struct munit *self);
 
-/* Concepts. */
+/* Hints. */
 
-enum mtype_kind {
-   mTYPE_INVAL = 0,
-   mTYPE_IDENT,
-   mTYPE_STRUCT,
-   mTYPE_ARRAY,
-   mTYPE_SLICE
+enum mhint_mode {
+   mMODE_NONE = 0,
+   mMODE_REF,
+   mMODE_POSS
 };
 
-struct mtype {
-   /* Set in typecheck. */
-   struct mtypedef *def;
+enum mhint_qual {
+   mQUAL_NONE = 0,
+   mQUAL_MUT,
+   mQUAL_CONST
+};
 
+enum mhint_kind {
+   mHINT_INVAL = 0,
+   mHINT_UNA,
+   mHINT_STRUCT,
+   mHINT_ARRAY,
+   mHINT_SLICE
+};
+
+struct mhint {
+   struct mloc loc;
+
+   /* Articulation. */
    union {
-      struct mident {
-         const char *name;
-      } ident;
+      struct muna {
+         const char *id;
+         /* In semantic analysis. */
+         struct mtypedef *def;
+      } una;
 
       struct mstruct {
-         struct mdecl *fields;
+         struct mdeclmap *scope;
       } struc;
 
       struct marray {
-         struct mtype *type;
+         struct mhint *type;
          struct mexpr *size;
       } array;
 
       struct mslice {
-         struct mtype *szty;
-         struct mtype *rgty;
+         struct mhint *type;
       } slice;
    } as;
-   enum mtype_kind kind;
-   bool mut;
+
+   /* Sets. */
+   enum mhint_mode mode;
+   enum mhint_qual qual;
+   enum mhint_kind kind;
 };
 
-void mtype_del(struct mtype *self);
+void mhint_del(struct mhint *self);
 
 /* Expressions. */
 
-enum mexpr_kind {
+enum mexpr_kind : uint8_t {
    mEXPR_INVAL = 0,
    mEXPR_BIN_OP,
    mEXPR_UNA_OP,
@@ -73,7 +90,7 @@ enum mexpr_kind {
    mEXPR_OPERATION
 };
 
-enum mbin_op_kind {
+enum mbin_op_kind : uint8_t {
    mBIN_OP_INVAL = 0,
    mBIN_OP_ADD,
    mBIN_OP_SUB,
@@ -93,14 +110,14 @@ enum mbin_op_kind {
    mBIN_OP_LEQ
 };
 
-enum muna_op_kind {
+enum muna_op_kind : uint8_t {
    mUNA_OP_INVAL = 0,
    mUNA_OP_PLUS,
    mUNA_OP_MINUS,
    mUNA_OP_NEG
 };
 
-enum mlit_kind {
+enum mlit_kind : uint8_t {
    mLIT_INVAL = 0,
    mLIT_INTEGER,
    mLIT_FLOAT,
@@ -112,6 +129,7 @@ enum mlit_kind {
 struct mexpr {
    struct mexpr *next;  // Used only in lists.
    struct mloc loc;
+   struct mhint *type;
    union {
       struct mbin_op {
          struct mexpr *lhs, *rhs;
@@ -133,8 +151,18 @@ struct mexpr {
       } call;
 
       struct mlit {
-         const char *buf;
+         union {
+            struct {
+               const char *buf;
+               int base;  // Integers only.
+            } uneva;      // While eval = false.
+            uint64_t u;
+            int64_t i;
+            double f;
+            size_t l;  // Strings length.
+         } as;
          enum mlit_kind kind;
+         bool eval;
       } lit;
 
       struct mparen {
@@ -142,6 +170,7 @@ struct mexpr {
       } paren;
 
       struct moperation {
+         struct mdeclmap *scope;
          struct mstmt *stmts;
       } operation;
    } as;
@@ -152,7 +181,7 @@ void mexpr_del(struct mexpr *self);
 
 /* Declarations. */
 
-enum mdecl_kind {
+enum mdecl_kind : uint8_t {
    mDECL_INVAL = 0,
    mDECL_TYPE,
    mDECL_FUNC,
@@ -160,18 +189,18 @@ enum mdecl_kind {
 };
 
 struct mdecl {
-   struct mdecl *next;
    struct mloc loc;
    const char *id;
-   struct mtype *type;
+   struct mhint *type;
    union {
       /* For aliases and primitives. */
-      struct mtypedecl {
+      struct mtype {
+         /* Used in semantic analysis. */
          struct mtypedef *def;
       } type;
 
       struct mfunc {
-         struct mdecl *params;
+         struct mdeclmap *scope;  // Only params.
          struct mexpr *expr;
       } func;
    } as;
@@ -223,6 +252,7 @@ struct mstmt {
 void mstmt_del(struct mstmt *self);
 
 void munit_print(struct munit *u);
-void mdecl_print(struct mdecl *e, int ind);
+void mhint_print(struct mhint *t, int ind);
+void mdecl_print(struct mdecl *d, int ind);
 void mexpr_print(struct mexpr *e, int ind);
 void mstmt_print(struct mstmt *s, int ind);

@@ -10,6 +10,7 @@
 #include <megc/loc.h>
 
 #include <stdint.h>
+#include <stdlib.h>
 
 enum mtoken_kind {
    mTOK_INVAL = 0,
@@ -77,6 +78,8 @@ enum mtoken_kind {
 struct mtoken {
    struct mloc loc;
    const char *lit;
+   /* Base for integers or string length. */
+   size_t data;
    enum mtoken_kind kind;
 };
 
