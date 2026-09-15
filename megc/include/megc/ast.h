@@ -213,7 +213,6 @@ void mdecl_del(struct mdecl *self);
 
 enum mstmt_kind {
    mSTMT_INVAL = 0,
-   mSTMT_DEF,
    mSTMT_ASSIGN,
    mSTMT_RESULT,
    mSTMT_DEL
@@ -223,11 +222,6 @@ struct mstmt {
    struct mstmt *next;
    struct mloc loc;
    union {
-      struct mdef {
-         struct mdecl *decl;
-         struct mexpr *init;
-      } def;
-
       struct massign {
          struct mexpr *decl;
          struct mexpr *expr;

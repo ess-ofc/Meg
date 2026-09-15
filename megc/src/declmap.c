@@ -31,8 +31,11 @@ static void checksize(struct mdeclmap *self) {
    if ((float) self->count / self->size > 0.80) {
       /* Old size and array. */
       auto olda = self->array;
+      auto bukp = self->fst;
 
       /* Resets the array. */
+      self->fst = nullptr;
+      self->lst = nullptr;
       self->count = 0;
       self->size *= 2;
       self->array = calloc(
@@ -41,7 +44,6 @@ static void checksize(struct mdeclmap *self) {
       );
 
       /* Remaps every valid entry. */
-      auto bukp = self->fst;
       while (bukp) {
          mdeclmap_set(self, bukp->decl);
          bukp = bukp->next;
@@ -60,7 +62,7 @@ static struct mdeclentry *get(
    uint64_t hash = XXH3_64bits(id, len);
    size_t pos = hash % self->size;
 
-   size_t psl = 0;
+   size_t off = 0;
    auto bukp = &self->array[pos];
    while (true) {
       if (bukp->decl) {
@@ -76,11 +78,11 @@ static struct mdeclentry *get(
             return bukp;
          }
 
-         if (bukp->psl < psl) {
+         if (bukp->off < off) {
             return nullptr;
          }
 
-         psl++;
+         off++;
          pos = (pos + 1) % self->size;
          bukp = &self->array[pos];
          continue;
@@ -119,30 +121,23 @@ bool mdeclmap_set(
          ) {
             return false;
          }
-
-         if (bukp->psl < buk.psl) {
-            auto tmp = *bukp;
-            *bukp = buk;
-            buk = tmp;
-         }
       } else {
          *bukp = buk;
          break;
       }
 
-      buk.psl++;
+      buk.off++;
       pos = (pos + 1) % self->size;
       bukp = &self->array[pos];
    }
 
-   self->count++;
    if (self->lst) {
       self->lst->next = bukp;
-      self->lst = bukp;
    } else {
       self->fst = bukp;
-      self->lst = bukp;
    }
+   self->lst = bukp;
+   self->count++;
    return true;
 }
 

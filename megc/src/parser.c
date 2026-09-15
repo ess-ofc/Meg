@@ -197,6 +197,7 @@ static struct mhint *parse_hint(struct parser *self) {
 
          if (!expect(self, &tok, mTOK_RBRCKT)) {
             mferro(tok.loc, "Expected ']'.");
+            ret->kind = mHINT_INVAL;
          } else {
             auto slice = &ret->as.slice;
             slice->type = parse_hint(self);
@@ -220,6 +221,7 @@ static struct mhint *parse_hint(struct parser *self) {
          array->size = parse_expr(self, 0);
          if (!expect(self, &tok, mTOK_RBRCKT)) {
             mferro(tok.loc, "Expected ']'.");
+            ret->kind = mHINT_INVAL;
          } else {
             array->type = parse_hint(self);
             if (!array->type->kind) {
@@ -342,7 +344,9 @@ static struct mstmt *parse_result(
    struct parser *self
 );
 static struct mstmt *parse_def(
-   struct parser *self
+   struct parser *self,
+   struct mdeclmap *scope
+
 );
 static struct mstmt *parse_assign(
    struct parser *self
@@ -364,11 +368,19 @@ static struct mexpr *parse_operation(
       .loc = tok.loc
    };
 
+   /* Just a shortcut. */
+   auto ope = &ret->as.operation;
+
+   /* Creates the operation scope. */
+   ope->scope = malloc(sizeof *ope->scope);
+   *ope->scope = mdeclmap_new();
+
    if (!eol(self, &tok)) {
       mferro(tok.loc, "Expected new line after '{'.");
    }
 
-   struct mstmt *fst = nullptr, *lst = fst;
+   /* Last statement. */
+   struct mstmt *lst = nullptr;
 
    /* Main statement parsing loop. */
    while (true) {
@@ -389,11 +401,23 @@ static struct mexpr *parse_operation(
          break;
 
       case mTOK_ID:
-         if (nxt(self).kind == mTOK_COLON) {
-            stmt = parse_def(self);
-         } else if (nxt(self).kind == mTOK_ASSIGN) {
+         switch (nxt(self).kind) {
+         case mTOK_COLON:
+            stmt = parse_def(self, ope->scope);
+            if (!stmt) {
+               /*
+                * If parse_def() didn't
+                * return an stmt, so it's
+                * just an object declaration
+                * in this scope.
+                */
+               goto eof;
+            }
+            break;
+         case mTOK_ASSIGN:
             stmt = parse_assign(self);
-         } else {
+            break;
+         default:
             goto result;
          }
          break;
@@ -403,14 +427,15 @@ result:
          stmt = parse_result(self);
       }
 
-      if (!fst) {
-         fst = stmt;
-         lst = fst;
+      if (!ope->stmts) {
+         ope->stmts = stmt;
+         lst = stmt;
       } else {
          lst->next = stmt;
          lst = stmt;
       }
 
+eof:
       if (!eol(self, &tok)) {
          mferro(tok.loc, "Expected newline.");
          skipuntil(self, mTOK_RBRACE);
@@ -420,16 +445,17 @@ result:
    }
 
 end:
-   if (!fst) {
-      mferro(tok.loc, "Empty operation.");
+   if (!ope->stmts) {
+      mferro(tok.loc, "Operation does nothing.");
       goto inval;
+   } else if (lst->kind != mSTMT_RESULT) {
+      mferro(tok.loc, "Operation does not result.");
    }
-   ret->as.operation.stmts = fst;
    return ret;
 
 inval:
-   if (ret->as.operation.stmts) {
-      mstmt_del(ret->as.operation.stmts);
+   if (ope->stmts) {
+      mstmt_del(ope->stmts);
    }
    ret->kind = mEXPR_INVAL;
    return ret;
@@ -813,6 +839,7 @@ static bool parse_initlist(
    if (!expect(self, &tok, ter)) {
       mferro(self->fst.loc, "Expected ')'.");
       skipuntil(self, ter);
+      return false;
    }
    return true;
 }
@@ -925,7 +952,8 @@ inval:
 }
 
 static struct mstmt *parse_def(
-   struct parser *self
+   struct parser *self,
+   struct mdeclmap *scope
 ) {
    auto tok = cur(self);
    assert(
@@ -933,32 +961,48 @@ static struct mstmt *parse_def(
       nxt(self).kind == mTOK_COLON
    );
 
-   struct mstmt *ret = malloc(sizeof *ret);
-   *ret = (struct mstmt){
-      .kind = mSTMT_DEF,
-      .loc = tok.loc
-   };
-
-   ret->as.def.decl = parse_objdecl(self);
-   if (!ret->as.def.decl) {
+   auto decl = parse_objdecl(self);
+   if (!decl) {
       skipuntil(self, mTOK_EOL);
-      goto inval;
+      return nullptr;
    }
+   mdeclmap_set(scope, decl);
 
+   /* Assignment. */
    if (cur(self).kind == mTOK_ASSIGN) {
+      struct mstmt *ret = malloc(sizeof *ret);
+      *ret = (struct mstmt){
+         .kind = mSTMT_ASSIGN,
+         .loc = cur(self).loc
+      };
+
+      /* Create a decl_ref expression. */
+      struct mexpr *ref = malloc(sizeof *ref);
+      *ref = (struct mexpr){
+         .kind = mEXPR_DECL_REF,
+         .loc = tok.loc,
+         .as.decl_ref = {
+            .declid = tok.lit
+         }
+      };
+
       advance(self);
-      ret->as.def.init = parse_expr(self, 0);
-      if (!ret->as.def.init) {
+      ret->as.assign.expr = parse_expr(self, 0);
+      if (!ret->as.assign.expr) {
          skipuntil(self, mTOK_EOL);
          goto inval;
       }
-   }
 
-   return ret;
+      ret->as.assign.decl = ref;
+      return ret;
 
 inval:
-   ret->kind = mSTMT_INVAL;
-   return ret;
+      mexpr_del(ref);
+      ret->kind = mSTMT_INVAL;
+      return ret;
+   }
+
+   return nullptr;
 }
 
 static struct mstmt *parse_assign(

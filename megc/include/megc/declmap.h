@@ -13,7 +13,7 @@
 struct mdeclentry {
    struct mdeclentry *next;
    uint64_t hash;
-   size_t psl, len;
+   size_t off, len;
    struct mdecl *decl;
 };
 

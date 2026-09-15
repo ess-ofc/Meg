@@ -134,10 +134,6 @@ void mstmt_del(struct mstmt *self) {
           * have memory allocations.
           */
          break;
-      case mSTMT_DEF:
-         mdecl_del(self->as.def.decl);
-         mexpr_del(self->as.def.init);
-         break;
       case mSTMT_ASSIGN:
          mexpr_del(self->as.assign.decl);
          mexpr_del(self->as.assign.expr);
@@ -296,6 +292,7 @@ void mprdecl(struct mdecl *d) {
    indent();
    if (!d) {
       prdecl("null", "\b");
+      dedent();
       return;
    }
 
@@ -325,6 +322,7 @@ void mprexpr(struct mexpr *e) {
    indent();
    if (!e) {
       prexpr("null", nullptr);
+      dedent();
       return;
    }
 
@@ -431,6 +429,7 @@ void mprexpr(struct mexpr *e) {
       break;
    case mEXPR_OPERATION:
       prexpr("operation", nullptr);
+      prmap(e->as.operation.scope);
       mprstmt(e->as.operation.stmts);
       break;
    }
@@ -447,16 +446,13 @@ void mprstmt(struct mstmt *s) {
    indent();
    if (!s) {
       prstmt("null");
+      dedent();
       return;
    }
 
    switch (s->kind) {
    case mSTMT_INVAL:
       prstmt("inval");
-      break;
-   case mSTMT_DEF:
-      prstmt("def");
-      mprexpr(s->as.def.init);
       break;
    case mSTMT_ASSIGN:
       prstmt("assign");
