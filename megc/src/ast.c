@@ -6,51 +6,200 @@
  */
 
 #include <megc/ast.h>
+#include <megc/diagno.h>
 
+#include <assert.h>
 #include <malloc.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
+#include <xxh3.h>
 
-static void delmap(struct mdeclmap *map) {
-   auto bukp = map->fst;
+#define QTYMASK ((mqtype) ~0b111)
+#define SETQUAL(ptr, qual) (ptr ^ (qual & (mqtype)0b111))
+
+mqtype mqtype_new(
+   struct mtype *type,
+   enum mtype_qual qual
+) {
+   auto ret = (mqtype) type;
+   assert(
+      !(ret & ~QTYMASK) &&
+      "`type` must be aligned at 8 bytes."
+   );
+
+   ret = SETQUAL(ret, qual);
+   return ret;
+}
+
+bool mqtype_isnil(mqtype qty) {
+   return !mqtype_get(qty);
+}
+
+struct mtype *mqtype_get(mqtype qty) {
+   return (void *) (qty & QTYMASK);
+}
+
+enum mtype_qual mqtype_qual(mqtype qty) {
+   return qty & ~QTYMASK;
+}
+
+/* Scope. */
+
+struct mscope *mscope_new() {
+   struct mscope *ret = malloc(sizeof *ret);
+   *ret = (struct mscope){};
+   ret->size = 4;
+   ret->count = 0;
+   ret->array = calloc(
+      ret->size,
+      sizeof(struct mdeclentry)
+   );
+   return ret;
+}
+
+void mscope_del(
+   struct mscope *self
+) {
+   auto bukp = self->fst;
    while (bukp) {
       mdecl_del(bukp->decl);
       bukp = bukp->next;
    }
 
-   mdeclmap_del(map);
-}
-
-void munit_del(struct munit *self) {
-   delmap(&self->scope);
+   free(self->array);
    free(self);
 }
 
-void mhint_del(struct mhint *self) {
-   if (self) {
-      switch (self->kind) {
-      case mHINT_INVAL:
-         /*
-          * Invalid nodes cannot
-          * have memory allocations.
-          */
-         break;
-      case mHINT_UNA:
-         break;
-      case mHINT_STRUCT:
-         delmap(self->as.struc.scope);
-         free(self->as.struc.scope);
-         break;
-      case mHINT_ARRAY:
-         mhint_del(self->as.array.type);
-         mexpr_del(self->as.array.size);
-         break;
-      case mHINT_SLICE:
-         mhint_del(self->as.slice.type);
+static void checksize(
+   struct mscope *self
+) {
+   if ((float) self->count / self->size > 0.80) {
+      /* Old size and array. */
+      auto olda = self->array;
+      auto bukp = self->fst;
+
+      /* Resets the array. */
+      self->fst = nullptr;
+      self->lst = nullptr;
+      self->count = 0;
+      self->size *= 2;
+      self->array = calloc(
+         self->size,
+         sizeof(struct mdeclentry)
+      );
+
+      /* Remaps every valid entry. */
+      while (bukp) {
+         mscope_set(self, bukp->decl);
+         bukp = bukp->next;
+      }
+
+      /* Frees the old array. */
+      free(olda);
+   }
+}
+
+bool mscope_set(
+   struct mscope *self,
+   struct mdecl *decl
+) {
+   checksize(self);
+
+   size_t len = strlen(decl->id);
+   uint64_t hash = XXH3_64bits(decl->id, len);
+   struct mdeclentry buk = {
+      .hash = hash,
+      .len = len,
+      .decl = decl
+   };
+
+   size_t pos = hash % self->size;
+   auto bukp = &self->array[pos];
+   while (true) {
+      if (bukp->decl) {
+         if (
+            bukp->hash == hash &&
+            bukp->len == len &&
+            strncmp(
+               bukp->decl->id,
+               decl->id,
+               len
+            ) == 0
+         ) {
+            return false;
+         }
+      } else {
+         *bukp = buk;
          break;
       }
 
-      free(self);
+      buk.off++;
+      pos = (pos + 1) % self->size;
+      bukp = &self->array[pos];
+   }
+
+   if (self->lst) {
+      self->lst->next = bukp;
+   } else {
+      self->fst = bukp;
+   }
+   self->lst = bukp;
+   self->count++;
+   return true;
+}
+
+struct mdecl *mscope_get(
+   struct mscope *self,
+   const char *id
+) {
+   size_t len = strlen(id);
+   uint64_t hash = XXH3_64bits(id, len);
+   size_t pos = hash % self->size;
+
+   size_t off = 0;
+   auto bukp = &self->array[pos];
+   while (true) {
+      if (bukp->decl) {
+         if (
+            bukp->hash == hash &&
+            bukp->len == len &&
+            strncmp(
+               bukp->decl->id,
+               id,
+               len
+            ) == 0
+         ) {
+            return bukp->decl;
+         }
+
+         if (bukp->off < off) {
+            return nullptr;
+         }
+
+         off++;
+         pos = (pos + 1) % self->size;
+         bukp = &self->array[pos];
+         continue;
+      }
+
+      return nullptr;
+   }
+}
+
+/* Deleters. */
+
+void munit_del(struct munit *self) {
+   mscope_del(self->scope);
+   free(self);
+}
+
+void mtype_del(struct mtype *self) {
+   if (self) {
+      if (self->kind == mTYPE_STRUCT) {
+         auto struc = &self->as.struc;
+         mscope_del(struc->scope);
+      }
    }
 }
 
@@ -87,6 +236,8 @@ void mexpr_del(struct mexpr *self) {
          mexpr_del(self->as.paren.child);
          break;
       case mEXPR_OPERATION:
+         mscope_del(self->as.operation.scope);
+         free(self->as.operation.scope);
          mstmt_del(self->as.operation.stmts);
          break;
       }
@@ -103,20 +254,17 @@ void mdecl_del(struct mdecl *self) {
           * Invalid nodes cannot
           * have memory allocations.
           */
-         break;
       case mDECL_TYPE:
-         free(self->as.type.def);
          break;
       case mDECL_FUNC:
-         delmap(self->as.func.scope);
-         free(self->as.func.scope);
+         mscope_del(self->as.func.scope);
          mexpr_del(self->as.func.expr);
          break;
       case mDECL_OBJ:
+         mexpr_del(self->as.obj.expr);
          break;
       }
 
-      mhint_del(self->type);
       free(self);
    }
 }
@@ -138,11 +286,11 @@ void mstmt_del(struct mstmt *self) {
          mexpr_del(self->as.assign.decl);
          mexpr_del(self->as.assign.expr);
          break;
-      case mSTMT_RESULT:
-         mexpr_del(self->as.result.expr);
+      case mSTMT_EXPR:
+         mexpr_del(self->as.expr);
          break;
-      case mSTMT_DEL:
-         mexpr_del(self->as.del.expr);
+      case mSTMT_RESULT:
+         mexpr_del(self->as.result);
          break;
       }
 
@@ -162,38 +310,30 @@ static void prunit(const char *name) {
    printf("'%s'\n", name);
 }
 
-static void prhint(
+static void prtype(
    const char *name,
-   struct mhint *h
+   enum mtype_qual qual,
+   const char *fmt,
+   ...
 ) {
-   PRCONCEPT("Hint");
-   printf("\033[1;38;2;255;255;150m%s\033[0m; ", name);
+   PRCONCEPT("Type");
+   printf("\033[1;38;2;255;255;180m%s\033[0m", name);
 
-   switch (h->mode) {
-   case mMODE_NONE:
-      name = "none ";
-      break;
-   case mMODE_POSS:
-      name = "$";
-      break;
-   case mMODE_REF:
-      name = "&";
-      break;
-   }
-   printf("%s", name);
+   const char *qtab[] = {
+      [mQUAL_NONE] = "\b",
+      [mQUAL_MUT] = "mut",
+      [mQUAL_CONST] = "const"
+   };
 
-   switch (h->qual) {
-   case mQUAL_NONE:
-      name = "none";
-      break;
-   case mQUAL_MUT:
-      name = "mut";
-      break;
-   case mQUAL_CONST:
-      name = "const";
-      break;
+   if (fmt) {
+      printf("; %s ", qtab[qual]);
+      va_list va;
+      va_start(va);
+      vprintf(fmt, va);
+      va_end(va);
    }
-   puts(name);
+
+   puts("");
 }
 
 static void prexpr(
@@ -247,41 +387,59 @@ static inline void dedent() {
    indentation--;
 }
 
-static void prmap(struct mdeclmap *map) {
+static void prmap(struct mscope *map) {
    auto decl = map->fst;
    while (decl) {
       mprdecl(decl->decl);
       decl = decl->next;
    }
 }
+
 void mprunit(struct munit *u) {
    indentation = 0;
    prunit(u->name);
-   prmap(&u->scope);
+   prmap(u->scope);
 }
 
-void mprhint(struct mhint *t) {
+void mprtype(mqtype qt) {
    indent();
 
+   auto t = mqtype_get(qt);
+   auto qual = mqtype_qual(qt);
+
+   if (!t) {
+      prtype("null", mQUAL_NONE, nullptr);
+      dedent();
+      return;
+   }
+
    switch (t->kind) {
-   case mHINT_INVAL:
-      prhint("inval", t);
+   case mTYPE_INVAL:
+      prtype("inval", qual, nullptr);
       break;
-   case mHINT_UNA:
-      prhint("una", t);
+   case mTYPE_UNA:
+      prtype("una", qual, t->as.una.id);
       break;
-   case mHINT_STRUCT:
-      prhint("struct", t);
-      prmap(t->as.struc.scope);
+   case mTYPE_REF:
+      prtype("ref", qual, nullptr);
+      mprtype(t->as.ref.type);
       break;
-   case mHINT_ARRAY:
-      prhint("array", t);
+   case mTYPE_STRUCT:
+      prtype("struct", qual, nullptr);
+      auto b = t->as.struc.scope->fst;
+      while (b) {
+         mprdecl(b->decl);
+         b = b->next;
+      }
+      break;
+   case mTYPE_ARRAY:
+      prtype("array", qual, nullptr);
       mprexpr(t->as.array.size);
-      mprhint(t->as.array.type);
+      mprtype(t->as.array.type);
       break;
-   case mHINT_SLICE:
-      prhint("slice", t);
-      mprhint(t->as.slice.type);
+   case mTYPE_SLICE:
+      prtype("slice", qual, nullptr);
+      mprtype(t->as.slice.type);
       break;
    }
 
@@ -305,13 +463,13 @@ void mprdecl(struct mdecl *d) {
       break;
    case mDECL_FUNC:
       prdecl("func", d->id);
-      mprhint(d->type);
+      mprtype(d->type);
       prmap(d->as.func.scope);
       mprexpr(d->as.func.expr);
       break;
    case mDECL_OBJ:
       prdecl("obj", d->id);
-      mprhint(d->type);
+      mprtype(d->type);
       break;
    }
 
@@ -393,7 +551,7 @@ void mprexpr(struct mexpr *e) {
    case mEXPR_UNA_OP:
       switch (e->as.una_op.kind) {
       case mUNA_OP_INVAL:
-         prexpr("EXPR inval", nullptr);
+         prexpr("inval", nullptr);
          goto end;
       case mUNA_OP_PLUS:
          name = "+";
@@ -459,13 +617,13 @@ void mprstmt(struct mstmt *s) {
       mprexpr(s->as.assign.decl);
       mprexpr(s->as.assign.expr);
       break;
+   case mSTMT_EXPR:
+      prstmt("expr");
+      mprexpr(s->as.expr);
+      break;
    case mSTMT_RESULT:
       prstmt("result");
-      mprexpr(s->as.result.expr);
-      break;
-   case mSTMT_DEL:
-      prstmt("del");
-      mprexpr(s->as.result.expr);
+      mprexpr(s->as.result);
       break;
    }
 

@@ -7,11 +7,10 @@
 
 #pragma once
 
-#include <megc/strpool.h>
+#include <megc/ast.h>
 #include <megc/tymap.h>
 
-struct munit *mparse_unit(
-   const char *unit_name,
-   struct mstrpool *strpool,
+bool msema_analyze(
+   struct munit *unit,
    struct mtymap *tymap
 );

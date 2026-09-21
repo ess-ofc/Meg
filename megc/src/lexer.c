@@ -60,8 +60,7 @@ static inline char peek(struct mlexer *self) {
 static inline void readuntil(struct mlexer *self, char c) {
    char ch = cur(self);
    while (ch != c) {
-      ch = peek(self);
-      next(self);
+      ch = next(self);
       if (ch == '\0') {
          break;
       }
@@ -496,8 +495,11 @@ again:
    case '\\':
       next(self);
       readuntil(self, '\\');
-      ret.kind = mTOK_DOC;
-      break;
+      if (cur(self) != '\\') {
+         mferro(ret.loc, "Unterminated comment.");
+      }
+      next(self);
+      goto again;
    case '"':
       next(self);
       return getstr(self);
@@ -619,6 +621,11 @@ again:
          ret.kind = mTOK_EQL;
          break;
       }
+      if (ch == '>') {
+         next(self);
+         ret.kind = mTOK_RESULT;
+         break;
+      }
       ret.kind = mTOK_ASSIGN;
       break;
    case '>':
@@ -640,9 +647,6 @@ again:
       ret.kind = mTOK_LSS;
       break;
 
-   case '$':
-      ret.kind = mTOK_DOLLAR;
-      break;
    case '~':
       ret.kind = mTOK_TILDE;
       break;

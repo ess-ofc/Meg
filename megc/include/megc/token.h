@@ -69,7 +69,7 @@ enum mtoken_kind {
    mTOK_RBRACE,
    mTOK_ASSIGN,
 
-   mTOK_DOLLAR,
+   mTOK_RESULT,
    mTOK_TILDE,
 
    mTOK_MAX  // The enum size.

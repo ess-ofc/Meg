@@ -9,6 +9,7 @@
 #include <megc/diagno.h>
 #include <megc/main.h>
 #include <megc/parser.h>
+#include <megc/sema.h>
 #include <megc/strpool.h>
 
 const char *progname = "megc";
@@ -65,12 +66,19 @@ int main(int argc, char *argv[]) {
    }
 
    auto strpool = mstrpool_new();
-   auto unit = mparse_unit(src, &strpool);
-   if (unit) {
-      mprunit(unit);
-      munit_del(unit);
-   }
+   auto tymap = mtymap_new();
 
+   auto unit = mparse_unit(src, &strpool, &tymap);
+   puts("\nAST after parsing:");
+   mprunit(unit);
+
+   msema_analyze(unit, &tymap);
+   puts("\nAST after semantic analysis:");
+   mprunit(unit);
+
+   munit_del(unit);
+
+   mtymap_del(&tymap);
    mstrpool_del(&strpool);
    return 0;
 }

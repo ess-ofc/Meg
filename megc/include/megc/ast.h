@@ -7,75 +7,121 @@
 
 #pragma once
 
-#include <megc/declmap.h>
 #include <megc/loc.h>
 
 #include <stddef.h>
 #include <stdint.h>
 
-/* Unit. */
+/* Qualified type. */
 
-struct munit {
-   const char *name;
-   struct mdeclmap scope;
-};
+struct mtype;
 
-void munit_del(struct munit *self);
-
-/* Hints. */
-
-enum mhint_mode {
-   mMODE_NONE = 0,
-   mMODE_REF,
-   mMODE_POSS
-};
-
-enum mhint_qual {
+enum mtype_qual {
    mQUAL_NONE = 0,
    mQUAL_MUT,
    mQUAL_CONST
 };
 
-enum mhint_kind {
-   mHINT_INVAL = 0,
-   mHINT_UNA,
-   mHINT_STRUCT,
-   mHINT_ARRAY,
-   mHINT_SLICE
+typedef uintptr_t mqtype;
+
+mqtype mqtype_new(
+   struct mtype *type,
+   enum mtype_qual qual
+);
+
+bool mqtype_isnil(mqtype qty);
+
+struct mtype *mqtype_get(mqtype qty);
+
+enum mtype_qual mqtype_qual(mqtype qty);
+
+/* Types */
+
+enum mtype_kind {
+   mTYPE_INVAL = 0,
+   mTYPE_UNA,
+   mTYPE_REF,
+   mTYPE_STRUCT,
+   mTYPE_ARRAY,
+   mTYPE_SLICE
 };
 
-struct mhint {
-   struct mloc loc;
-
-   /* Articulation. */
+struct mtype {
    union {
       struct muna {
-         const char *id;
          /* In semantic analysis. */
-         struct mtypedef *def;
+         struct mdecl *decl;
+         const char *id;
       } una;
 
+      struct mref {
+         mqtype type;
+      } ref;
+
       struct mstruct {
-         struct mdeclmap *scope;
+         struct mscope *scope;
       } struc;
 
       struct marray {
-         struct mhint *type;
          struct mexpr *size;
+         mqtype type;
       } array;
 
       struct mslice {
-         struct mhint *type;
+         mqtype type;
       } slice;
    } as;
-
-   /* Sets. */
-   enum mhint_mode mode;
-   enum mhint_qual qual;
-   enum mhint_kind kind;
+   enum mtype_kind kind;
+   bool checked;  // In semantic analysis.
 };
 
-void mhint_del(struct mhint *self);
+void mtype_del(struct mtype *self);
+
+/* Scopes. */
+
+struct mscope {
+   size_t size, count;
+   struct mdeclentry *array;
+
+   /*
+    * We want the order that the
+    * declarations was set.
+    * `fst` to the first and
+    * `lst` points to the
+    * last declaration set.
+    */
+   struct mdeclentry {
+      struct mdeclentry *next;
+      uint64_t hash;
+      size_t off, len;
+      struct mdecl *decl;
+   } *fst, *lst;
+};
+
+struct mscope *mscope_new();
+
+void mscope_del(struct mscope *self);
+
+/* Adds a new key and value. */
+bool mscope_set(
+   struct mscope *self,
+   struct mdecl *decl
+);
+
+/* Gets a new value by key. */
+struct mdecl *mscope_get(
+   struct mscope *self,
+   const char *id
+);
+
+/* Unit. */
+
+struct munit {
+   const char *name;
+   struct mscope *scope;
+};
+
+void munit_del(struct munit *self);
 
 /* Expressions. */
 
@@ -129,28 +175,28 @@ enum mlit_kind : uint8_t {
 struct mexpr {
    struct mexpr *next;  // Used only in lists.
    struct mloc loc;
-   struct mhint *type;
+   mqtype type;
    union {
-      struct mbin_op {
+      struct {
          struct mexpr *lhs, *rhs;
          enum mbin_op_kind kind;
       } bin_op;
 
-      struct muna_op {
+      struct {
          struct mexpr *oprnd;
          enum muna_op_kind kind;
       } una_op;
 
-      struct mdecl_ref {
+      struct {
          const char *declid;
       } decl_ref;
 
-      struct mcall {
+      struct {
          struct mexpr *decl;  // Any callable expr.
          struct mexpr *args;
       } call;
 
-      struct mlit {
+      struct {
          union {
             struct {
                const char *buf;
@@ -165,12 +211,12 @@ struct mexpr {
          bool eval;
       } lit;
 
-      struct mparen {
+      struct {
          struct mexpr *child;
       } paren;
 
-      struct moperation {
-         struct mdeclmap *scope;
+      struct {
+         struct mscope *scope;
          struct mstmt *stmts;
       } operation;
    } as;
@@ -181,7 +227,13 @@ void mexpr_del(struct mexpr *self);
 
 /* Declarations. */
 
-enum mdecl_kind : uint8_t {
+enum mtypedef_kind {
+   mTYPEDEF_NONE = 0,
+   mTYPEDEF_DEF,
+   mTYPEDEF_ALIAS
+};
+
+enum mdecl_kind {
    mDECL_INVAL = 0,
    mDECL_TYPE,
    mDECL_FUNC,
@@ -191,18 +243,30 @@ enum mdecl_kind : uint8_t {
 struct mdecl {
    struct mloc loc;
    const char *id;
-   struct mhint *type;
+   mqtype type;
    union {
       /* For aliases and primitives. */
-      struct mtype {
+      struct {
          /* Used in semantic analysis. */
-         struct mtypedef *def;
+         union {
+            struct mtypedef {
+               size_t alignment;
+               size_t size;
+            } def;
+
+            struct mtype *alias;
+         } as;
+         enum mtypedef_kind kind;
       } type;
 
-      struct mfunc {
-         struct mdeclmap *scope;  // Only params.
+      struct {
+         struct mscope *scope;  // Only params.
          struct mexpr *expr;
       } func;
+
+      struct {
+         struct mexpr *expr;
+      } obj;
    } as;
    enum mdecl_kind kind;
 };
@@ -214,31 +278,22 @@ void mdecl_del(struct mdecl *self);
 enum mstmt_kind {
    mSTMT_INVAL = 0,
    mSTMT_ASSIGN,
-   mSTMT_RESULT,
-   mSTMT_DEL
+   mSTMT_EXPR,
+   mSTMT_RESULT
 };
 
 struct mstmt {
    struct mstmt *next;
    struct mloc loc;
    union {
-      struct massign {
+      struct {
          struct mexpr *decl;
          struct mexpr *expr;
       } assign;
 
-      struct mnew {
-         const char *id;
-         uint64_t objid;
-      } new;
+      struct mexpr *expr;
 
-      struct mdel {
-         struct mexpr *expr;
-      } del;
-
-      struct mresult {
-         struct mexpr *expr;
-      } result;
+      struct mexpr *result;
    } as;
    enum mstmt_kind kind;
 };
@@ -246,7 +301,7 @@ struct mstmt {
 void mstmt_del(struct mstmt *self);
 
 void mprunit(struct munit *u);
-void mprhint(struct mhint *h);
+void mprqtype(mqtype qt);
 void mprdecl(struct mdecl *d);
 void mprexpr(struct mexpr *e);
 void mprstmt(struct mstmt *s);

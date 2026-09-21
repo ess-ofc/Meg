@@ -63,7 +63,7 @@ const char *toknames[] = {
    [mTOK_RBRACE] = "}",
    [mTOK_ASSIGN] = "=",
 
-   [mTOK_DOLLAR] = "$",
+   [mTOK_RESULT] = "=>",
    [mTOK_TILDE] = "~"
 };
 
