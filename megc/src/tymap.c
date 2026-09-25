@@ -13,9 +13,9 @@
 
 struct mtymap mtymap_new() {
    struct mtymap ret = {
-      .size = 4,
+      .size = 64,
       .map = calloc(
-         4,
+         64,
          sizeof(struct mtybucket)
       )
    };
@@ -27,6 +27,7 @@ void mtymap_del(struct mtymap *self) {
       auto b = &self->map[self->size];
       if (b->ty) {
          mtype_del(b->ty);
+         free(b->ty);
       }
    }
 
@@ -60,10 +61,31 @@ static struct mtype *set(
    }
 }
 
+static struct mtype *get(
+   struct mtymap *self,
+   uint64_t hash
+) {
+   /* Finds the bucket. */
+   size_t pos = hash % self->size;
+   for (;;) {
+      auto b = &self->map[pos];
+
+      if (b->ty) {
+         if (b->hash == hash) {
+            return b->ty;
+         }
+      } else {
+         return nullptr;
+      }
+
+      pos = (pos + 1) % self->size;
+   }
+}
+
 static void check(
    struct mtymap *self
 ) {
-   if ((double) self->count / self->size > 0.90) {
+   if ((double) self->count / self->size > 0.70) {
       size_t olds = self->size;
       auto oldmap = self->map;
 
@@ -84,46 +106,75 @@ static void check(
    }
 }
 
+[[gnu::always_inline]]
+static uint64_t wymix(uint64_t h1, uint64_t h2) {
+   __uint128_t r = h1;
+   r *= h2;
+   return (uint64_t) (r ^ (r >> 64));
+}
+
 struct mtype *mtymap_set(
    struct mtymap *self,
    struct mtype *type
 ) {
    check(self);
 
-   // TODO: Use some alternative to `calloc()`.
-   struct mtype *ty = calloc(
-      1,
-      sizeof *ty
-   );
+   /* I found this seed n internet, sorry. */
+   constexpr uint64_t seed = 0x9e3779b97f4a7c15;
 
-   ty->kind = type->kind;
-   /*
-    * Copies field by field,
-    * we don't need unintialized
-    * memory.
-    */
-   switch (ty->kind) {
+   uint64_t hash = seed;
+
+   /* Mix all! */
+   hash = wymix(hash, type->kind);
+   switch (type->kind) {
    case mTYPE_INVAL:
       break;
    case mTYPE_UNA:
-      ty->as.una.id = type->as.una.id;
-      ty->as.una.decl = type->as.una.decl;
+      hash = wymix(
+         hash,
+         XXH3_64bits(
+            type->as.una.id,
+            strlen(type->as.una.id)
+         )
+      );
       break;
    case mTYPE_REF:
-      ty->as.ref.type = type->as.ref.type;
+      hash = wymix(hash, type->as.ref.type);
       break;
    case mTYPE_STRUCT:
-      ty->as.struc.scope = type->as.struc.scope;
+      auto b = type->as.struc.scope->fst;
+      while (b) {
+         hash = wymix(hash, b->decl->type);
+         b = b->next;
+      }
       break;
    case mTYPE_ARRAY:
-      ty->as.array.size = type->as.array.size;
-      ty->as.array.type = type->as.array.type;
+      /* Not working well. */
+      hash = wymix(hash, type->as.array.type);
       break;
    case mTYPE_SLICE:
-      ty->as.slice.type = type->as.slice.type;
+      hash = wymix(hash, type->as.slice.type);
+      break;
+   case mTYPE_FUNC:
+      auto p = type->as.func.scope->fst;
+      while (p) {
+         hash = wymix(hash, p->decl->type);
+         p = p->next;
+      }
       break;
    }
 
-   uint64_t hash = XXH3_64bits(ty, sizeof *ty);
-   return set(self, ty, hash);
+   auto ret = get(self, hash);
+   if (!ret) {
+      ret = malloc(sizeof *type);
+      *ret = *type;
+      ret = set(self, ret, hash);
+      /* `type` moved to the map, clear it. */
+      *type = (struct mtype){};
+   } else {
+      /* `type` must mot return. */
+      mtype_del(type);
+      *type = (struct mtype){};  // For safety.
+   }
+   return ret;
 }

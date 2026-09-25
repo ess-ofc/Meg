@@ -74,7 +74,7 @@ void mscope_del(
 static void checksize(
    struct mscope *self
 ) {
-   if ((float) self->count / self->size > 0.80) {
+   if ((float) self->count / self->size > 0.70) {
       /* Old size and array. */
       auto olda = self->array;
       auto bukp = self->fst;
@@ -83,7 +83,7 @@ static void checksize(
       self->fst = nullptr;
       self->lst = nullptr;
       self->count = 0;
-      self->size *= 2;
+      self->size *= 4;
       self->array = calloc(
          self->size,
          sizeof(struct mdeclentry)
@@ -134,7 +134,6 @@ bool mscope_set(
          break;
       }
 
-      buk.off++;
       pos = (pos + 1) % self->size;
       bukp = &self->array[pos];
    }
@@ -157,7 +156,6 @@ struct mdecl *mscope_get(
    uint64_t hash = XXH3_64bits(id, len);
    size_t pos = hash % self->size;
 
-   size_t off = 0;
    auto bukp = &self->array[pos];
    while (true) {
       if (bukp->decl) {
@@ -173,11 +171,6 @@ struct mdecl *mscope_get(
             return bukp->decl;
          }
 
-         if (bukp->off < off) {
-            return nullptr;
-         }
-
-         off++;
          pos = (pos + 1) % self->size;
          bukp = &self->array[pos];
          continue;
@@ -190,15 +183,31 @@ struct mdecl *mscope_get(
 /* Deleters. */
 
 void munit_del(struct munit *self) {
-   mscope_del(self->scope);
-   free(self);
+   if (self) {
+      mscope_del(self->scope);
+      free(self);
+   }
 }
 
 void mtype_del(struct mtype *self) {
    if (self) {
-      if (self->kind == mTYPE_STRUCT) {
+      switch (self->kind) {
+      case mTYPE_INVAL:
+      case mTYPE_UNA:
+      case mTYPE_REF:
+      case mTYPE_SLICE:
+      case mTYPE_STRUCT:
          auto struc = &self->as.struc;
          mscope_del(struc->scope);
+         break;
+      case mTYPE_ARRAY:
+         auto array = &self->as.array;
+         mexpr_del(array->size);
+         break;
+      case mTYPE_FUNC:
+         auto func = &self->as.func;
+         mscope_del(func->scope);
+         break;
       }
    }
 }
@@ -232,6 +241,11 @@ void mexpr_del(struct mexpr *self) {
          break;
       case mEXPR_LIT:
          break;
+      case mEXPR_STRUCT:
+         break;
+      case mEXPR_ARRAY:
+         mexpr_del(self->as.array.list);
+         break;
       case mEXPR_PAREN:
          mexpr_del(self->as.paren.child);
          break;
@@ -255,6 +269,7 @@ void mdecl_del(struct mdecl *self) {
           * have memory allocations.
           */
       case mDECL_TYPE:
+      case mDECL_VALUE:
          break;
       case mDECL_FUNC:
          mscope_del(self->as.func.scope);
@@ -401,7 +416,7 @@ void mprunit(struct munit *u) {
    prmap(u->scope);
 }
 
-void mprtype(mqtype qt) {
+void mprqtype(mqtype qt) {
    indent();
 
    auto t = mqtype_get(qt);
@@ -422,7 +437,7 @@ void mprtype(mqtype qt) {
       break;
    case mTYPE_REF:
       prtype("ref", qual, nullptr);
-      mprtype(t->as.ref.type);
+      mprqtype(t->as.ref.type);
       break;
    case mTYPE_STRUCT:
       prtype("struct", qual, nullptr);
@@ -435,11 +450,15 @@ void mprtype(mqtype qt) {
    case mTYPE_ARRAY:
       prtype("array", qual, nullptr);
       mprexpr(t->as.array.size);
-      mprtype(t->as.array.type);
+      mprqtype(t->as.array.type);
       break;
    case mTYPE_SLICE:
       prtype("slice", qual, nullptr);
-      mprtype(t->as.slice.type);
+      mprqtype(t->as.slice.type);
+      break;
+   case mTYPE_FUNC:
+      prtype("func", qual, nullptr);
+      mprqtype(t->as.func.type);
       break;
    }
 
@@ -461,15 +480,18 @@ void mprdecl(struct mdecl *d) {
    case mDECL_TYPE:
       prdecl("type", d->id);
       break;
+   case mDECL_VALUE:
+      prdecl("value", d->id);
+      break;
    case mDECL_FUNC:
       prdecl("func", d->id);
-      mprtype(d->type);
+      mprqtype(d->type);
       prmap(d->as.func.scope);
       mprexpr(d->as.func.expr);
       break;
    case mDECL_OBJ:
       prdecl("obj", d->id);
-      mprtype(d->type);
+      mprqtype(d->type);
       break;
    }
 
@@ -579,6 +601,15 @@ void mprexpr(struct mexpr *e) {
          prexpr("lit", "eval = true");
       } else {
          prexpr("lit", "eval = false");
+      }
+      break;
+   case mEXPR_STRUCT:
+      prexpr("struct", nullptr);
+      break;
+   case mEXPR_ARRAY:
+      prexpr("array", nullptr);
+      if (e->as.array.list) {
+         mprexpr(e->as.array.list);
       }
       break;
    case mEXPR_PAREN:

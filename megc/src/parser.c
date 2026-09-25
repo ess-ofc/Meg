@@ -59,10 +59,7 @@ static inline struct mtoken nxtvalid(
 ) {
    auto t = cur(self);
    while (t.kind != mTOK_EOF) {
-      if (
-         t.kind != mTOK_EOL &&
-         t.kind != mTOK_DOC
-      ) {
+      if (t.kind != mTOK_EOL) {
          break;
       }
 
@@ -149,8 +146,12 @@ static mqtype pahint(
 
    enum mtype_qual qual = 0;
 
-   if (expect(self, &tok, mTOK_MUT)) {
+   if (tok.kind == mTOK_MUT) {
       qual = mQUAL_MUT;
+      advance(self);
+   } else if (tok.kind == mTOK_CONST) {
+      qual = mQUAL_CONST;
+      advance(self);
    }
 
    tok = cur(self);
@@ -165,27 +166,67 @@ static mqtype pahint(
       ret.kind = mTYPE_UNA;
       ret.as.una.id = tok.lit;
       break;
+   case mTOK_LPAREN:
+      /*
+       * Functional types are
+       * written as:
+       *
+       * (<parameter list>) <type>
+       *
+       * EXAMPLE  Functional type
+       *          that receives two
+       *          integers and
+       *          results in a bool.
+       *
+       * (x: i32, y: i32) bool
+       *
+       * Parameters must have
+       * name.
+       */
+      advance(self);
+      ret.kind = mTYPE_FUNC;
+
+      auto scope = mscope_new();
+      if (!expect(self, &tok, mTOK_RPAREN)) {
+getparm:
+         auto parm = padecl(self);
+         if (!parm->kind) {
+            mdecl_del(parm);
+            mferro(tok.loc, "Expected parameter declaration.");
+            skipuntil(self, mTOK_RPAREN);
+         } else {
+            declare(scope, parm);
+
+            if (expect(self, &tok, mTOK_COMMA)) {
+               nxtvalid(self);
+               goto getparm;
+            }
+
+            if (!expect(self, &tok, mTOK_RPAREN)) {
+               mferro(tok.loc, "Ecpected ')'.");
+               skipuntil(self, mTOK_RPAREN);
+            }
+         }
+      }
+
+      ret.as.func.scope = scope;
+      ret.as.func.type = pahint(self);
+      break;
    case mTOK_LBRCKT:
       advance(self);
       tok = nxtvalid(self);
 
       switch (tok.kind) {
-      case mTOK_TILDE:
+      case mTOK_RBRCKT:
          /*
           * Is a slice, the syntax is:
-          * [~] <type hint>
+          * [] <type hint>
           * EXAMPLE An slice of type i32,
           *         size is a u64.
-          * [~] i32
+          * [] i32
           */
          ret.kind = mTYPE_SLICE;
          advance(self);
-
-         if (!expect(self, &tok, mTOK_RBRCKT)) {
-            mferro(tok.loc, "Expected ']'.");
-            ret.kind = mTYPE_INVAL;
-            break;
-         }
 
          auto slice = &ret.as.slice;
          slice->type = pahint(self);
@@ -326,8 +367,7 @@ end:
 static struct mexpr *paexpr(struct parser *self, int prec);
 
 static struct mexpr *nud(
-   struct parser *self,
-   int prec
+   struct parser *self
 ) {
    struct mtoken tok = cur(self);
    assert(tok.kind < mTOK_MAX);
@@ -337,12 +377,24 @@ static struct mexpr *nud(
       .loc = tok.loc
    };
 
+   constexpr int ptable[] = {
+      [mTOK_ADD] = 90,
+      [mTOK_SUB] = 90,
+      [mTOK_AND] = 90,
+      [mTOK_NEG] = 90,
+
+      [mTOK_LPAREN] = 100,
+      [mTOK_LBRACE] = 100
+   };
+
+   int prec = ptable[tok.kind];
+
    switch (tok.kind) {
    case mTOK_ADD:
    case mTOK_SUB:
    case mTOK_AND:
    case mTOK_NEG:
-      ret->kind = mEXPR_BIN_OP;
+      ret->kind = mEXPR_UNA_OP;
       switch (tok.kind) {
       case mTOK_ADD:
          ret->as
@@ -359,6 +411,7 @@ static struct mexpr *nud(
       default:
       }
 
+      advance(self);
       ret->as
          .una_op.oprnd = paexpr(self, prec);
       break;
@@ -367,7 +420,7 @@ static struct mexpr *nud(
 
       advance(self);
       ret->as
-         .paren.child = paexpr(self, prec);
+         .paren.child = paexpr(self, 0);
       if (!expect(self, &tok, mTOK_RPAREN)) {
          mferro(tok.loc, "Expected ')'.");
          skipuntil(self, mTOK_LPAREN);
@@ -419,16 +472,95 @@ static struct mexpr *nud(
          }
       }
       break;
+   case mTOK_LBRCKT:
+      /*
+       * This expression can be
+       * a structure or an array:
+       *
+       * structures, are lists of
+       * declarations, like:
+       *
+       * [field1: type, field2 := 10]
+       *
+       * arrays, are lists of
+       * expressions, like:
+       *
+       * [10, 20, 30, 50]
+       */
+      advance(self);
+      tok = nxtvalid(self);
+
+      if (
+         tok.kind == mTOK_RBRCKT ||
+         (tok.kind == mTOK_ID &&
+            nxt(self).kind == mTOK_COLON)
+      ) {  // It's a struct.
+         ret->kind = mEXPR_STRUCT;
+         auto scope = mscope_new();
+
+         if (!expect(self, &tok, mTOK_RBRCKT)) {
+getfield:
+            auto field = padecl(self);
+            if (!field->kind) {
+               mdecl_del(field);
+               mferro(tok.loc, "Expected field declaration.");
+               skipuntil(self, mTOK_RBRCKT);
+            } else {
+               declare(scope, field);
+
+               if (expect(self, &tok, mTOK_COMMA)) {
+                  nxtvalid(self);
+                  goto getfield;
+               }
+
+               if (!expect(self, &tok, mTOK_RBRCKT)) {
+                  mferro(tok.loc, "Expected ']'.");
+                  skipuntil(self, mTOK_RBRCKT);
+               }
+            }
+         }
+
+         ret->as.struc.scope = scope;
+      } else {  // It's an array.
+         ret->kind = mEXPR_ARRAY;
+
+         struct mexpr *lst = paexpr(self, 0);
+         ret->as.array.list = lst;
+         while (expect(self, &tok, mTOK_COMMA)) {
+            lst->next = paexpr(self, 0);
+            lst = lst->next;
+         }
+
+         if (!expect(self, &tok, mTOK_RBRCKT)) {
+            mferro(tok.loc, "Expected ']'.");
+            skipuntil(self, mTOK_RBRCKT);
+         }
+      }
+      break;
    case mTOK_ID:
       ret->kind = mEXPR_DECL_REF;
-
       advance(self);
       ret->as
          .decl_ref.declid = tok.lit;
       break;
+   case mTOK_STRING:
+      ret->kind = mEXPR_LIT;
+      advance(self);
+      ret->as.lit.kind = mLIT_STRING;
+      ret->as.lit.as
+         .s.str = tok.lit;
+      ret->as.lit.as
+         .s.len = tok.data;
+      break;
+   case mTOK_RUNE:
+      ret->kind = mEXPR_LIT;
+      advance(self);
+      ret->as.lit.kind = mLIT_RUNE;
+      ret->as.lit.as
+         .r = tok.data;
+      break;
    case mTOK_INTEGER:
       ret->kind = mEXPR_LIT;
-
       advance(self);
       ret->as.lit.kind = mLIT_INTEGER;
       ret->as.lit.as
@@ -436,7 +568,13 @@ static struct mexpr *nud(
       ret->as.lit.as
          .uneva.base = tok.data;
       break;
-
+   case mTOK_FLOAT:
+      ret->kind = mEXPR_LIT;
+      advance(self);
+      ret->as.lit.kind = mLIT_FLOAT;
+      ret->as.lit.as
+         .uneva.buf = tok.lit;
+      break;
    default:
       mferro(tok.loc, "Expected expression.");
       ret->kind = mEXPR_INVAL;
@@ -631,7 +769,7 @@ static struct mexpr *paexpr(
    int prec
 ) {
    nxtvalid(self);
-   struct mexpr *expr = nud(self, prec);
+   struct mexpr *expr = nud(self);
    if (!expr->kind) {
       return expr;
    }
@@ -687,19 +825,25 @@ static struct mdecl *padecl(
          tok = advance(self);
 
          func->scope = mscope_new();
-         while (!expect(self, &tok, mTOK_RPAREN)) {
+         if (!expect(self, &tok, mTOK_RPAREN)) {
+getparm:
             auto parm = padecl(self);
             if (!parm->kind) {
                mdecl_del(parm);
                mferro(tok.loc, "Expected parameter declaration.");
                skipuntil(self, mTOK_RPAREN);
-               break;
             } else {
                declare(func->scope, parm);
-            }
 
-            if (!expect(self, &tok, mTOK_COMMA)) {
-               break;
+               if (expect(self, &tok, mTOK_COMMA)) {
+                  nxtvalid(self);
+                  goto getparm;
+               }
+
+               if (!expect(self, &tok, mTOK_RPAREN)) {
+                  mferro(tok.loc, "Ecpected ')'.");
+                  skipuntil(self, mTOK_RPAREN);
+               }
             }
          }
 
@@ -727,6 +871,7 @@ static struct mdecl *padecl(
 inval:
       ret->kind = mDECL_INVAL;
       {
+         /* Gives it an ID. */
          static int invalc = 0;
          invalc++;
          char buf[32];
@@ -743,49 +888,6 @@ inval:
    return ret;
 }
 
-/* Default declarations. */
-
-static void newprimitve(
-   struct parser *self,
-   struct mscope *scope,
-   const char *id,
-   size_t size
-) {
-   struct mdecl *decl = malloc(sizeof *decl);
-   *decl = (struct mdecl){
-      .kind = mDECL_TYPE,
-      .id = id,
-      .as.type = {
-         .kind = mTYPEDEF_DEF,
-         .as.def = {
-            .alignment = size,
-            .size = size
-         }
-      }
-   };
-
-   struct mtype type = {
-      .kind = mTYPE_UNA,
-      .as.una = {
-         .id = id,
-         .decl = decl
-      }
-   };
-
-   mtymap_set(self->tymap, &type);
-   declare(scope, decl);
-}
-
-static void initdefs(
-   struct parser *self,
-   struct mscope *scope
-) {
-   newprimitve(self, scope, "i08", 1);
-   newprimitve(self, scope, "i16", 2);
-   newprimitve(self, scope, "i32", 4);
-   newprimitve(self, scope, "i64", 8);
-}
-
 /* Unit */
 
 static struct munit *paunit(
@@ -798,8 +900,6 @@ static struct munit *paunit(
       .name = name,
       .scope = mscope_new()
    };
-
-   initdefs(self, ret->scope);
 
    for (;;) {
       tok = cur(self);
@@ -820,7 +920,7 @@ static struct munit *paunit(
          if (!decl->kind) {
             tok = cur(self);
             mdecl_del(decl);
-            mferro(tok.loc, "Expected declaration");
+            mferro(tok.loc, "Expected declaration.");
             skipuntil(self, mTOK_EOL);
             continue;
          }

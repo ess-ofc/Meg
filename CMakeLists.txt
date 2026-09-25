@@ -20,5 +20,7 @@ set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED on)
 set(CMAKE_C_EXTENSIONS off)
 
+find_package(LLVM REQUIRED)
+
 # Meg compiler
 add_subdirectory(megc)

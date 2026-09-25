@@ -13,13 +13,12 @@ const char *toknames[] = {
    [mTOK_EOF] = "EOF",
    [mTOK_EOL] = "EOL",
 
-   [mTOK_DOC] = "DOC",
    [mTOK_ID] = "ID",
 
    [mTOK_TYPE] = "type",
    [mTOK_LET] = "let",
-   [mTOK_NEW] = "new",
-   [mTOK_DEL] = "del",
+   [mTOK_MUT] = "mut",
+   [mTOK_CONST] = "const",
    [mTOK_DEFER] = "defer",
    [mTOK_IF] = "if",
    [mTOK_OR] = "or",
@@ -28,11 +27,11 @@ const char *toknames[] = {
    [mTOK_BREAK] = "break",
    [mTOK_CONTINUE] = "continue",
 
-   [mTOK_INTEGER] = "I",
-   [mTOK_FLOAT] = "F",
-   [mTOK_BOOL] = "B",
-   [mTOK_STRING] = "S",
-   [mTOK_CHAR] = "C",
+   [mTOK_INTEGER] = "integer",
+   [mTOK_FLOAT] = "float",
+   [mTOK_BOOL] = "bool",
+   [mTOK_STRING] = "string",
+   [mTOK_RUNE] = "rune",
 
    [mTOK_ADD] = "+",
    [mTOK_SUB] = "-",

@@ -43,7 +43,8 @@ enum mtype_kind {
    mTYPE_REF,
    mTYPE_STRUCT,
    mTYPE_ARRAY,
-   mTYPE_SLICE
+   mTYPE_SLICE,
+   mTYPE_FUNC
 };
 
 struct mtype {
@@ -70,6 +71,11 @@ struct mtype {
       struct mslice {
          mqtype type;
       } slice;
+
+      struct mfunc {
+         struct mscope *scope;
+         mqtype type;
+      } func;
    } as;
    enum mtype_kind kind;
    bool checked;  // In semantic analysis.
@@ -93,7 +99,7 @@ struct mscope {
    struct mdeclentry {
       struct mdeclentry *next;
       uint64_t hash;
-      size_t off, len;
+      size_t len;
       struct mdecl *decl;
    } *fst, *lst;
 };
@@ -118,6 +124,7 @@ struct mdecl *mscope_get(
 
 struct munit {
    const char *name;
+   struct mscope *magscope;  // Created in sema.c.
    struct mscope *scope;
 };
 
@@ -133,7 +140,9 @@ enum mexpr_kind : uint8_t {
    mEXPR_CALL,
    mEXPR_LIT,
    mEXPR_PAREN,
-   mEXPR_OPERATION
+   mEXPR_OPERATION,
+   mEXPR_STRUCT,
+   mEXPR_ARRAY
 };
 
 enum mbin_op_kind : uint8_t {
@@ -169,7 +178,8 @@ enum mlit_kind : uint8_t {
    mLIT_FLOAT,
    mLIT_BOOL,
    mLIT_STRING,
-   mLIT_CHAR
+   mLIT_RUNE,
+   mLIT_FUNC
 };
 
 struct mexpr {
@@ -197,15 +207,26 @@ struct mexpr {
       } call;
 
       struct {
+         struct mscope *scope;
+      } struc;
+
+      struct {
+         struct mexpr *list;
+      } array;
+
+      struct {
          union {
             struct {
                const char *buf;
                int base;  // Integers only.
             } uneva;      // While eval = false.
-            uint64_t u;
-            int64_t i;
-            double f;
-            size_t l;  // Strings length.
+            uint64_t i;   // int;
+            int32_t r;    // rune;
+            double f;     // float;
+            struct {
+               const char *str;
+               size_t len;
+            } s;  // strings.
          } as;
          enum mlit_kind kind;
          bool eval;
@@ -227,15 +248,30 @@ void mexpr_del(struct mexpr *self);
 
 /* Declarations. */
 
+enum mtype_category {
+   mCATEG_NONE = 0,
+   mCATEG_INTEGER,
+   mCATEG_UINTEGER,  // Unsigned.
+   mCATEG_FLOAT,
+   mCATEG_BOOLEAN,
+   mCATEG_RUNE
+};
+
 enum mtypedef_kind {
    mTYPEDEF_NONE = 0,
    mTYPEDEF_DEF,
    mTYPEDEF_ALIAS
 };
 
+enum mvalue_kind {
+   mVALUE_INVAL = 0,
+   mVALUE_BOOL
+};
+
 enum mdecl_kind {
    mDECL_INVAL = 0,
    mDECL_TYPE,
+   mDECL_VALUE,
    mDECL_FUNC,
    mDECL_OBJ
 };
@@ -252,12 +288,21 @@ struct mdecl {
             struct mtypedef {
                size_t alignment;
                size_t size;
+               enum mtype_category categ;
+               bool unsign;
             } def;
 
             struct mtype *alias;
          } as;
          enum mtypedef_kind kind;
       } type;
+
+      struct {
+         union mvalue {
+            bool b;
+         } as;
+         enum mvalue_kind kind;
+      } value;
 
       struct {
          struct mscope *scope;  // Only params.

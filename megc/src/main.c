@@ -6,17 +6,24 @@
  */
 
 #include <megc/ast.h>
+#include <megc/cgen.h>
 #include <megc/diagno.h>
 #include <megc/main.h>
 #include <megc/parser.h>
 #include <megc/sema.h>
 #include <megc/strpool.h>
 
+#include <string.h>
+
 const char *progname = "megc";
 const char *ouputname = "a.out";
 const char *src = nullptr;
+static bool
+   syntaxonly = false,
+   semanticonly = false;
 
 int main(int argc, char *argv[]) {
+   bool ok = true;
    progname = argv[0];
 
    // Parses arguments.
@@ -29,19 +36,16 @@ int main(int argc, char *argv[]) {
             merro("Expected flag name.");
             return 1;
 
-         case 'o':
-            if (argname[1] != '\0') {
-               merro("Invalid flag name: '%s'.", argv[i]);
-               break;
+         case 'f':
+            if (!strcmp(argv[i], "-fsyntaxonly")) {
+               syntaxonly = true;
+            } else if (!strcmp(argv[i], "-fsemanticonly")) {
+               semanticonly = true;
+            } else {
+               merro("Undefined flag '%s'.", argv[i]);
+               ok = false;
             }
-
-            if (i + 1 < argc) {
-               ouputname = argv[++i];
-               break;
-            }
-
-            merro("Expected output name after '%s'.", argv[i]);
-            return 1;
+            break;
 
          default:
             merro("Unknown flag: '%s'.", argv[i]);
@@ -60,6 +64,10 @@ int main(int argc, char *argv[]) {
    }
 
    // Check.
+   if (!ok) {
+      return 1;
+   }
+
    if (!src) {
       merro("No input file.");
       return 1;
@@ -69,15 +77,28 @@ int main(int argc, char *argv[]) {
    auto tymap = mtymap_new();
 
    auto unit = mparse_unit(src, &strpool, &tymap);
+   if (!unit) {
+      goto end;
+   }
    puts("\nAST after parsing:");
    mprunit(unit);
+   if (syntaxonly) {
+      goto end;
+   }
 
-   msema_analyze(unit, &tymap);
+   ok = msema_analyze(unit, &tymap);
    puts("\nAST after semantic analysis:");
    mprunit(unit);
+   if (semanticonly) {
+      goto end;
+   }
 
+   if (ok && mgeterrc() == 0) {
+      mcgen_genunit(unit);
+   }
+
+end:
    munit_del(unit);
-
    mtymap_del(&tymap);
    mstrpool_del(&strpool);
    return 0;

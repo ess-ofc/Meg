@@ -4,6 +4,7 @@ target_sources(
    PUBLIC
    FILE_SET HEADERS BASE_DIRS include
       FILES
+      include/megc/cgen.h
       include/megc/tymap.h
       include/megc/sema.h
       include/megc/strpool.h
@@ -15,6 +16,7 @@ target_sources(
       include/megc/diagno.h
       include/megc/main.h
    PRIVATE
+   src/cgen.c
    src/tymap.c
    src/sema.c
    src/strpool.c
@@ -25,3 +27,8 @@ target_sources(
    src/diagno.c
    src/main.c
 )
+
+include_directories(${LLVM_INCLUDE_DIRS})
+add_definitions(${LLVM_DEFINITIONS})
+
+target_link_libraries(megc PUBLIC LLVM)

@@ -9,6 +9,8 @@
 
 #include <megc/loc.h>
 
+int mgeterrc();
+
 /* For debug and internal abort */
 [[noreturn]]
 void madeus(const char *str, ...);

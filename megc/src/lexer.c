@@ -79,8 +79,7 @@ static enum mtoken_kind iskeyword(
       {4, "type", mTOK_TYPE},
       {3, "let", mTOK_LET},
       {3, "mut", mTOK_MUT},
-      {3, "new", mTOK_NEW},
-      {3, "del", mTOK_DEL},
+      {5, "const", mTOK_CONST},
       {5, "defer", mTOK_DEFER},
       {2, "if", mTOK_IF},
       {2, "or", mTOK_OR},
@@ -147,6 +146,7 @@ static char getscape(struct mlexer *self) {
    next(self);
    switch (c) {
    case '\0':
+   case '\n':
       mferro(loc, "Unterminated scape sequence.");
       return 0;
    case '0':
@@ -193,9 +193,11 @@ static struct mtoken getstr(struct mlexer *self) {
    char str[16 * 1024];
    size_t len = 0;
 
-   char c = cur(self);
    while (true) {
+      char c = cur(self);
+
       if (c == '"') {
+         next(self);
          break;
       }
 
@@ -254,7 +256,52 @@ inval:
    return ret;
 }
 
-static struct mtoken getnum(struct mlexer *self) {
+static struct mtoken getrune(
+   struct mlexer *self
+) {
+   struct mtoken ret = {
+      .kind = mTOK_RUNE,
+      .loc = {
+         .filename = self->fname,
+         .column = self->column,
+         .line = self->line
+      }
+   };
+
+   char c = cur(self);
+   switch (c) {
+   case '\0':
+   case '\n':
+      goto unterminated;
+   case '\'':
+      mferro(ret.loc, "Empty rune literal.");
+      ret.data = '\0';
+      break;
+      ;
+   case '\\':
+      ret.data = getscape(self);
+      c = cur(self);
+   default:
+      ret.data = c;
+      c = next(self);
+   }
+
+   if (c != '\'') {
+      goto unterminated;
+   }
+
+   next(self);
+   return ret;
+
+unterminated:
+   mferro(ret.loc, "Unterminated rune literal.");
+   readuntil(self, '\'');
+   return ret;
+}
+
+static struct mtoken getnum(
+   struct mlexer *self
+) {
    struct mtoken ret = {
       .loc = {
          .filename = self->fname,
@@ -299,37 +346,37 @@ static struct mtoken getnum(struct mlexer *self) {
    size_t busz = 0;
    bool issep = false;
    unsigned val = 0;
-   while (true) {
-      auto cloc = ret.loc;
-      cloc.column++;
+
+   for (;; c = next(self)) {
+      struct mloc cloc = ret.loc;
+      cloc.column = self->column;
 
       switch (c) {
       case '\0':
-         goto final;
+      case '\n':
+         goto end;
 
       case '.':
-         if (base != 10) {
-            mferro(
-               ret.loc,
-               "Floating point literas can't be %s.",
-               bname
-            );
+         if (issep) {
+            mfwarn(cloc, "Consecutive separators.");
          }
-
-         if (f) {
-            mferro(cloc, "Extra '.'.");
-         } else {
-            buf[busz++] = '.';
-         }
+         buf[busz++] = '.';
+         next(self);
          f = true;
-         /* throughout */
+         goto frac;
       case ';':
          if (issep) {
-            mferro(cloc, "Consecutive separators.");
+            mfwarn(cloc, "Consecutive separators.");
          }
          issep = true;
-         c = next(self);
-         continue;
+         next(self);
+         break;
+
+      case 'E':
+         buf[busz++] = 'E';
+         next(self);
+         f = true;
+         goto exp;
 
       case '0':
       case '1':
@@ -342,97 +389,47 @@ static struct mtoken getnum(struct mlexer *self) {
       case '8':
       case '9':
          val = c - '0';
-         goto eval;
+         if (val >= base) {
+            mferro(cloc, "Invalid digit in %s literal.", bname);
+            break;
+         }
+         buf[busz++] = c;
+         break;
+
+      case 'f':
+         if (f && base != 16) {
+            goto sfx;
+         }
+         /* fallthrough */
       case 'a':
       case 'b':
       case 'c':
       case 'd':
       case 'e':
-      case 'f':
+         val = 10 + c - 'a';
+         if (f) {
+            mferro(cloc, "Hex digit in float literal.");
+            break;
+         }
          if (base != 16) {
-            mferro(cloc, "Using hexadecimal digits in a %s literal.", bname);
-            break;
+            mferro(
+               cloc,
+               "Invalid digit in %s literal.",
+               bname
+            );
          }
-         val = (c - 'a') + 10;
-         /* throughout */
-eval:
-         if (val >= base) {
-            mferro(cloc, "Invalid digit in a %s literal.", bname);
-            break;
-         }
-
          buf[busz++] = c;
          break;
 
-      case 'E':
-         buf[busz++] = 'e';
-         f = true;
-         c = next(self);
-
-         /* Appends the signal. */
-         if (c == '-' || c == '+') {
-            buf[busz++] = c;
-            c = next(self);
-         }
-
-         while (isdigit(c)) {
-            buf[busz++] = c;
-            c = next(self);
-         }
-
-         /* Checks out if the exponent has digits. */
-         c = self->buf[self->off - 1];
-         if (c == 'E' || c == '-' || c == '+') {
-            mferro(cloc, "Exponent has no digits.");
-         }
-
-         /* throughout */
       default:
-         goto final;
+         goto end;
       }
-
-      if (busz == sizeof buf) {
-         mferro(ret.loc, "Number too long.");
-         /* skipuntil 'gambiarra'. */
-         while (
-            isdigit(c) ||
-            (base == 16 ?
-                  c == 'a' ||
-                     c == 'b' ||
-                     c == 'c' ||
-                     c == 'd' ||
-                     c == 'e' ||
-                     c == 'f' :
-                  false)
-         ) {
-            if (c == 'E') {
-               c = next(self);
-               while (
-                  isdigit(c) ||
-                  c == '+' ||
-                  c == '-'
-               ) {
-                  c = next(self);
-               }
-               break;
-            }
-
-            c = next(self);
-         }
-
-         return (struct mtoken){
-            .kind = mTOK_INVAL
-         };
-      }
-
-      c = next(self);
-      issep = false;
    }
 
-final:
-   /* Trying to not return nullptr. */
+end:
    if (busz == 0) {
-      buf[0] = 0;
+      buf[0] = '0';
+      buf[1] = '\0';
       busz = 1;
    }
 
@@ -442,8 +439,120 @@ final:
       buf,
       busz
    );
-   ret.kind = f ? mTOK_FLOAT : mTOK_INTEGER;
+   ret.kind = f ?
+      mTOK_FLOAT :
+      mTOK_INTEGER;
    return ret;
+
+exp:
+   c = cur(self);
+   if (c == '-' || c == '+') {
+      buf[busz++] = c;
+      c = next(self);
+   }
+
+   if (!isdigit(c)) {
+      mferro(ret.loc, "Empty exponent.");
+      buf[busz++] = '0';
+      goto end;
+   }
+
+   for (;; c = next(self)) {
+      struct mloc cloc = ret.loc;
+      cloc.column = self->column;
+
+      switch (c) {
+      case '\0':
+      case '\n':
+         next(self);
+         goto end;
+
+      case 'f':
+         goto sfx;
+
+      case '0':
+      case '1':
+      case '2':
+      case '3':
+      case '4':
+      case '5':
+      case '6':
+      case '7':
+      case '8':
+      case '9':
+         buf[busz++] = c;
+         break;
+
+      default:
+         goto end;
+      }
+   }
+   goto end;
+
+frac:
+   c = cur(self);
+   if (!isdigit(c)) {
+      mferro(ret.loc, "Empty fractional part.");
+      buf[busz++] = '0';
+      goto end;
+   }
+
+   for (;; c = next(self)) {
+      switch (c) {
+      case '\0':
+      case '\n':
+         goto end;
+
+      case 'E':
+         buf[busz++] = 'E';
+         next(self);
+         goto exp;
+
+      case '0':
+      case '1':
+      case '2':
+      case '3':
+      case '4':
+      case '5':
+      case '6':
+      case '7':
+      case '8':
+      case '9':
+         buf[busz++] = c;
+         break;
+
+      default:
+         goto end;
+      }
+   }
+   goto end;
+
+sfx:
+   c = cur(self);
+   switch (c) {
+   case 'i':
+   case 'u':
+   case 'f':
+      c = next(self);
+      if (isdigit(c)) {
+         buf[busz++] = c;
+         c = next(self);
+         if (!isdigit(c)) {
+            mferro(
+               ret.loc,
+               "Suffixes must have 2 size"
+               " digits or no one."
+               " Like 'u32' or 'u'."
+            );
+            buf[busz++] = 0;
+            goto end;
+         }
+         buf[busz++] = c;
+         goto end;
+      }
+   default:
+      goto end;
+   }
 }
 
 struct mtoken mlexer_lex(struct mlexer *self) {
@@ -485,6 +594,7 @@ again:
       return getnum(self);
    }
 
+   char ch = '\0';
    switch (c) {
       char tc = 0;
 
@@ -504,43 +614,8 @@ again:
       next(self);
       return getstr(self);
    case '\'':
-      ret.kind = mTOK_CHAR;
-      char ch;
-
-      /* Gets the content. */
-      ch = peek(self);
-      if (ch == '\\') {  // Is scape.
-         next(self);
-         ch = getscape(self);
-      } else {
-         if (ch == '\'') {  // Is the left quote.
-            mferro(ret.loc, "Empty char literal.");
-            next(self);
-            ret.lit = " ";
-            break;
-         } else if (ch == '\0' || ch == '\n') {  // Is EOF or EOL.
-            mferro(ret.loc, "Unterminated char literal.");
-            readuntil(self, '\'');  // Tries to find '\''.
-            ret.lit = " ";
-            break;
-         }
-      }
-
-      c = peek(self);
-      if (c != '\'') {
-         mferro(ret.loc, "Incomplete char literal.");
-         readuntil(self, '\'');
-         ret.lit = " ";
-         break;
-      }
-
-      ret.lit = mstrpool_insert(
-         self->strpool,
-         &ch,
-         1
-      );
-      goto end;
-
+      next(self);
+      return getrune(self);
    case '+':
       ret.kind = mTOK_ADD;
       break;
