@@ -18,14 +18,12 @@ enum mtoken_kind {
    mTOK_EOF,
    mTOK_EOL,
 
-   mTOK_DOC,
    mTOK_ID,
 
    mTOK_TYPE,
    mTOK_LET,
    mTOK_MUT,
-   mTOK_NEW,
-   mTOK_DEL,
+   mTOK_CONST,
    mTOK_DEFER,
    mTOK_IF,
    mTOK_OR,
@@ -38,7 +36,7 @@ enum mtoken_kind {
    mTOK_FLOAT,
    mTOK_BOOL,
    mTOK_STRING,
-   mTOK_CHAR,
+   mTOK_RUNE,
 
    mTOK_ADD,
    mTOK_SUB,
@@ -69,7 +67,7 @@ enum mtoken_kind {
    mTOK_RBRACE,
    mTOK_ASSIGN,
 
-   mTOK_DOLLAR,
+   mTOK_RESULT,
    mTOK_TILDE,
 
    mTOK_MAX  // The enum size.

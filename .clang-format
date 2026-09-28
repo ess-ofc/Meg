@@ -110,4 +110,4 @@ SpacesInAngles: false
 SpacesInParens: Never
 SpacesInSquareBrackets: false
 TabWidth: 3
-UseTab: Never
+UseTab: Always

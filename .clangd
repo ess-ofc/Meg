@@ -1,8 +1,12 @@
 CompileFlags:
   CompilationDatabase: build/
-  Add: [-ferror-limit=0]
+  Add: [
+    -ferror-limit=0
+  ]
 
 Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: Strict
   Suppress: ["pp_including_mainfile_in_preamble"]
 
 Hover:

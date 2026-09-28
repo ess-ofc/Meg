@@ -5,11 +5,7 @@
  * ======================================
  */
 
-#pragma once
+#include "meg.h"
 
-#include <megc/strpool.h>
-
-struct munit *mparse_unit(
-   const char *unit_name,
-   struct mstrpool *strpool
-);
+void parse() {
+}

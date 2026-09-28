@@ -1,26 +1,11 @@
-add_executable(megc)
-target_sources(
+add_executable(
    megc
-   PUBLIC
-   FILE_SET HEADERS BASE_DIRS include
-      FILES
-      include/megc/typedef.h
-      include/megc/declmap.h
-      include/megc/strpool.h
-      include/megc/parser.h
-      include/megc/lexer.h
-      include/megc/token.h
-      include/megc/ast.h
-      include/megc/loc.h
-      include/megc/diagno.h
-      include/megc/main.h
-   PRIVATE
-   src/declmap.c
-   src/strpool.c
-   src/parser.c
-   src/lexer.c
-   src/token.c
-   src/ast.c
-   src/diagno.c
-   src/main.c
+
+   main.c
+   lex.c
+   utils.c
+   diag.c
+   tok.c
+   parser.c
+   runetable.c
 )
