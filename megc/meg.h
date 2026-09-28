@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <threads.h>
 /* IWYU pragma: end_exports */
 
 /* Defs. */
@@ -33,6 +34,8 @@ typedef size_t size;
 typedef const char *str;
 typedef u32 rune;
 typedef u08 error;
+
+#define LOCAL thread_local
 
 /* Source location. */
 
@@ -293,8 +296,12 @@ str tokname(enum tok);
 
 /* main.c */
 
-extern str file;
-extern bool werror;
+extern LOCAL str file;
+
+extern str progname;
+extern bool	 // Flags.
+	fwerror,
+	fdump;
 
 /* diag.c */
 
@@ -324,4 +331,6 @@ str intern(str s, size n);
 
 /* utis.c */
 
+void meminit();
+void memdnit();
 void *alloc(size n);

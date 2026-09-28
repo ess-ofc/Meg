@@ -6,39 +6,79 @@
  */
 
 #include "meg.h"
-#include <stdio.h>
 
-str file;
-bool werror;
+LOCAL str file;
+
+str progname = "megc";
+bool fwerror;
+bool fdump;
+
+struct info {
+	str file;
+};
+
+/* Compilation routine. */
+int run(void *args) {
+	struct info *i = args;
+	file = i->file;
+
+	meminit();
+	if (lexinit())
+		return 1;
+
+	lexdnit();
+	memdnit();
+	return 0;
+}
 
 int main(int c, char **v) {
 	setlocale(LC_ALL, "");
 
-	if (c != 2) {
-		erro("Expected only the file name.");
-		return 1;
+	str file = nullptr;
+	progname = v[0];
+
+	for (int i = 1; i < c; i++) {
+		str arg = v[i];
+
+		if (*arg == '-') {
+			arg++;
+			switch (*arg) {
+			case 'w':
+				arg++;
+				if (strcmp(arg, "error"))
+					fwerror = true;
+				else {
+					break;
+				}
+				continue;
+			case 'd':
+				fdump = true;
+				continue;
+			}
+
+			erro("Unknown option %s.", v[i]);
+			continue;
+		}
+
+		if (file) {
+			erro("One file at once!");
+			continue;
+		}
+
+		file = arg;
 	}
 
-	file = v[1];
-	if (lexinit())
-		return 1;
-	enum tok t = lex();
-	while (t) {
-		fputs(tokname(t), stdout);
-		if (t == LEOL)
-			puts("");
-		else if (t == LEOF)
-			break;
-		else if (t == LID)
-			printf("(%s) ", getlit());
-		else if (t == LINTEGER)
-			printf("(%s) ", getlit());
-		else if (t == LFLOAT)
-			printf("(%s) ", getlit());
-		else
-			putc(' ', stdout);
-		t = lex();
+	struct info args = {
+		.file = file
+	};
+
+	thrd_t s;
+	int ret = thrd_create(&s, run, &args);
+	if (ret != thrd_success) {
+		adeus("Can't create the compiling thread.");
 	}
-	puts("");
-	return 0;
+
+	ret = 0;
+	thrd_join(s, &ret);
+	return ret;
 }

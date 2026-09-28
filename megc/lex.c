@@ -12,14 +12,14 @@
 #include <string.h>
 #include <xxh3.h>
 
-static u08 *buf;
-static size off, busz;
-static u32 line = 1, col;
+LOCAL static u08 *buf;
+LOCAL static size off, busz;
+LOCAL static u32 line = 1, col;
 
-static str lit;
-static u64 data;
-static struct loc loc;
-static rune ch;
+LOCAL static str lit;
+LOCAL static u64 data;
+LOCAL static struct loc loc;
+LOCAL static rune ch;
 
 static struct {
 	struct strbucket {
@@ -75,6 +75,7 @@ str intern(str s, size n) {
 			b->hash = hash;
 			b->len = n;
 			b->s = buf;
+			pool.bukc++;
 			return buf;
 		}
 
@@ -118,7 +119,7 @@ static size utf8tor(size roff, rune *r) {
 		return 1;
 	}
 
-	if (w > roff - busz) {
+	if (w > busz - roff) {
 		lerro(loc, "Invalid rune size.");
 		return 1;
 	}
@@ -221,6 +222,13 @@ error lexinit() {
 
 	next();	// Get the first rune.
 	return 0;
+}
+
+void lexdnit() {
+	free(pool.map);
+	pool.map = nullptr;
+	pool.bukc = 0;
+	pool.maps = 0;
 }
 
 static rune getscape() {
@@ -327,6 +335,7 @@ static enum tok getstr() {
 			goto end;
 		case '\\':
 			next();
+			roff = off;
 			s[len++] = getscape();
 			continue;
 		default:
@@ -427,8 +436,7 @@ static enum tok getnum() {
 	i32 base = 10;
 	str bname = "decimal";
 	if (ch == '0') {
-		next();
-		switch (ch) {
+		switch (peek()) {
 		case 'x':
 			base = 16;
 			bname = "hexadecimal";
@@ -444,6 +452,7 @@ static enum tok getnum() {
 		default:
 			goto analyze;
 		}
+		next();
 		next();
 	}
 
@@ -664,7 +673,7 @@ enum tok lex() {
 			next();
 			return LLOR;
 		}
-		return LOR;
+		return LBOR;
 	case '^':
 		next();
 		return LEOR;
@@ -672,7 +681,7 @@ enum tok lex() {
 		next();
 		if (ch == '=') {
 			next();
-			return LNEG;
+			return LNEQ;
 		}
 		return LNEG;
 	case '=':

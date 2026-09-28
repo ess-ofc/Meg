@@ -39,7 +39,7 @@ void erro(str msg, ...) {
 void warn(str msg, ...) {
 	va_list va;
 	va_start(va);
-	if (werror) {
+	if (fwerror) {
 		errc++;
 		diag(RED "error", msg, va);
 	} else {
@@ -90,7 +90,7 @@ void lerro(struct loc l, str msg, ...) {
 void lwarn(struct loc l, str msg, ...) {
 	va_list va;
 	va_start(va);
-	if (werror) {
+	if (fwerror) {
 		errc++;
 		diag(RED "error", msg, va);
 	} else {
