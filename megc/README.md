@@ -17,7 +17,7 @@ sum(x: i32, y: i32) := x + y
 \ Main function \ 
 main(): i32 = {
    x := sum(20, 30)
-   x \ Returns x, that is 50 \ 
+   => x \ Returns x, that is 50 \ 
 }
 ```
 NOTE: Nothing works, yet...
