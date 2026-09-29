@@ -9,8 +9,7 @@
  * I'm not good at Go,
  * but this file will
  * generate the runetables,
- * that lex.c at in megc
- * uses to identify Meg
+ * that megc uses to identify
  * UTF-8 identifiers.
  */
 

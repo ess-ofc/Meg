@@ -7,5 +7,7 @@ add_executable(
    diag.c
    tok.c
    parser.c
+   scope.c
+   ast.
    runetable.c
 )

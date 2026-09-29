@@ -40,14 +40,36 @@ typedef u08 error;
 /* Source location. */
 
 struct loc {
-	int line, col;
+	u32 line, col;
+};
+
+/* The Unit. */
+
+struct unit {
+	str id;
+	struct scope *s;
+};
+
+/* Scopes. */
+
+struct scope {
+	/* Map. */
+	struct dbuk {
+		u64 h;  // Hash.
+		size len;
+		struct dbuk *next;
+		struct decl *d;
+	} *map,			 // Map.
+		*fst, *lst;	 // First and last bucket.
+	size maps;		 // Map size.
+	size dc;			 // Decl count.
 };
 
 /* Types. */
 
 enum typek : u08 {
 	TNONE,
-	TIDENT,
+	TDREF,
 	TREF,
 	TFUNC,
 	TSTRUC,
@@ -66,9 +88,8 @@ struct type {
 	struct loc l;
 	union {
 		struct {
-			struct decl *d;
-			const char *id;
-		} ident;
+			struct expr *d;  // dref to a type.
+		} dref;
 
 		struct {
 			struct type *ty;
@@ -178,6 +199,7 @@ enum exprk : u08 {
 	ENEG,
 	EPLUS,
 	EMINUS,
+	ESELECT,
 
 	EPAREN,
 	EDREF,
@@ -189,6 +211,7 @@ enum exprk : u08 {
 
 struct expr {
 	struct loc l;
+	struct expr *next;
 	struct type *ty;
 	union {
 		struct {
@@ -225,8 +248,55 @@ struct expr {
 		struct {
 			struct expr *list;
 		} array;
-	} y;
+	} u;
 	enum exprk k;
+};
+
+/* Statements. */
+
+enum stmtk {
+	SNONE,
+	SRESULT,
+	SSTACK,
+	SASSIGN,
+	SIF,
+	SFOR,
+	SBREAK,
+	SCONTINUE,
+	SEXPR
+};
+
+struct stmt {
+	struct loc l;
+	struct stmt *next;
+	union {
+		struct {
+			str id;
+			struct type *ty;
+			struct expr *e;
+		} stack;
+
+		struct {
+			struct expr *var;	 // Any assinable expr.
+			struct expr *e;
+		} assign;
+
+		struct {
+			struct expr *cond;
+			/* Both stmt list. */
+			struct stmt *then;
+			struct stmt *orel;
+		} ifs;
+
+		struct {
+			struct expr *cond;  // Maybe null.
+			struct stmt *does;  // Stmt list.
+		} fors;
+
+		/* ERESULT and SEXPR. */
+		struct expr *expr;
+	} u;
+	enum stmtk k;
 };
 
 /* Tokens. */
@@ -303,6 +373,35 @@ extern bool	 // Flags.
 	fwerror,
 	fdump;
 
+/* ast.c */
+
+struct unit *newunit(str id);
+struct type *newtype(
+	struct loc l,
+	enum typek k,
+	enum qual q
+);
+struct decl *newdecl(
+	struct loc l,
+	enum declk k,
+	str id
+);
+struct expr *newexpr(
+	struct loc l,
+	enum exprk k,
+	struct type *ty
+);
+struct stmt *newstmt(
+	struct loc l,
+	enum stmtk k
+);
+
+/* scope.c */
+
+struct scope *newscope();
+void declare(struct scope *s, struct decl *d);
+struct decl *getdecl(struct scope *s, str id);
+
 /* diag.c */
 
 void erro(str msg, ...);
@@ -328,6 +427,10 @@ enum tok lex();
 str getlit();
 uint64_t getdata();
 str intern(str s, size n);
+
+/* parser.c */
+
+void parse(struct unit *u);
 
 /* utis.c */
 

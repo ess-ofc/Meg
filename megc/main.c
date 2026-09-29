@@ -22,9 +22,16 @@ int run(void *args) {
 	struct info *i = args;
 	file = i->file;
 
+	struct unit *u;
+
 	meminit();
-	if (lexinit())
+	if (lexinit()) {
+		memdnit();
 		return 1;
+	}
+
+	u = newunit(file);
+	parse(u);
 
 	lexdnit();
 	memdnit();
@@ -68,17 +75,17 @@ int main(int c, char **v) {
 		file = arg;
 	}
 
+	if (errcount())
+		return 1;
+
 	struct info args = {
 		.file = file
 	};
 
-	thrd_t s;
-	int ret = thrd_create(&s, run, &args);
-	if (ret != thrd_success) {
-		adeus("Can't create the compiling thread.");
-	}
-
-	ret = 0;
-	thrd_join(s, &ret);
+	/*
+	 * TODO: Accept multiple file
+	 * and run multiple threads.
+	 */
+	int ret = run(&args);
 	return ret;
 }
