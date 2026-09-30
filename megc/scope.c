@@ -10,18 +10,19 @@
 /* Large includes. */
 #include <xxh3.h>
 
-void scopeinit(struct scope *s) {
+struct scope *newscope() {
+	struct scope *s;
+
+	s = alloc(sizeof *s);
 	s->fst = nullptr;
 	s->lst = nullptr;
 	s->maps = 4;
 	s->dc = 0;
-	s->map = alloc(sizeof *s->map);
-	memset(s->map, 0, sizeof *s->map);
-}
 
-void scopednit(struct scope *s) {
-	free(s->map);
-	s->map = nullptr;
+	size bytes = sizeof *s->map * s->maps;
+	s->map = alloc(bytes);
+	memset(s->map, 0, bytes);
+	return s;
 }
 
 static void check(
@@ -35,8 +36,10 @@ static void check(
 	s->fst = nullptr;
 	s->dc = 0;
 	s->maps *= 4;
-	s->map = alloc(sizeof *s->map);
-	memset(s->map, 0, sizeof *s->map);
+
+	size bytes = sizeof *s->map * s->maps;
+	s->map = alloc(bytes);
+	memset(s->map, 0, bytes);
 
 	while (bukp) {
 		declare(s, bukp->d);
@@ -65,7 +68,10 @@ void declare(
 			p->h = h;
 			p->len = len;
 
-			s->lst->next = p;
+			if (s->lst)
+				s->lst->next = p;
+			else
+				s->fst = p;
 			s->lst = p;
 			s->dc++;
 			return;

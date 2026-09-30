@@ -52,6 +52,13 @@ struct unit {
 
 /* Scopes. */
 
+/*
+ * Scopes contains declarations
+ * as a hash map. We need the
+ * order they were inserted
+ * when printing AST. `struct
+ * scope` isn't an AST node.
+ */
 struct scope {
 	/* Map. */
 	struct dbuk {
@@ -73,8 +80,7 @@ enum typek : u08 {
 	TREF,
 	TFUNC,
 	TSTRUC,
-	TARRAY,
-	TSLICE
+	TARRAY
 };
 
 /* Qualifiers. */
@@ -88,7 +94,7 @@ struct type {
 	struct loc l;
 	union {
 		struct {
-			struct expr *d;  // dref to a type.
+			struct expr *e;  // dref to a type.
 		} dref;
 
 		struct {
@@ -108,10 +114,6 @@ struct type {
 			struct expr *sz;
 			struct type *ty;
 		} array;
-
-		struct {
-			struct type *ty;
-		} slice;
 	} u;
 	enum qual q;
 	enum typek k;
@@ -145,11 +147,12 @@ struct decl {
 		struct {
 			struct scope *s;
 			struct type *ty;
+			struct expr *e;
 		} func;
 
 		struct {
-			struct expr *init;
 			struct type *ty;
+			struct expr *e;
 		} obj;
 
 		struct {
@@ -182,7 +185,7 @@ enum exprk : u08 {
 
 	EAND,
 	EEOR,
-	EOR,
+	EBOR,
 	ELAND,
 	ELOR,
 	ENOT,
@@ -199,12 +202,15 @@ enum exprk : u08 {
 	ENEG,
 	EPLUS,
 	EMINUS,
+	EOPER,
 	ESELECT,
 
 	EPAREN,
 	EDREF,
-	ELIT,
-	ESTR,
+	EINTEGER,
+	EFLOAT,
+	ERUNE,
+	ESTRING,
 	ESTRUC,
 	EARRAY
 };
@@ -234,20 +240,18 @@ struct expr {
 		} dref;
 
 		struct {
-			uint64_t num;
-		} lit;
-
-		struct {
 			str s;
+			size n;
 		} str;
 
 		struct {
 			struct scope *s;
 		} struc;
 
-		struct {
-			struct expr *list;
-		} array;
+		rune rune;
+		u64 integer;
+		struct stmt *oper;
+		struct expr *elist;
 	} u;
 	enum exprk k;
 };
@@ -310,6 +314,7 @@ enum tok {
 	LID,
 
 	LDEF,
+	LALIAS,
 	LMUT,
 	LCONST,
 	LIF,
@@ -388,8 +393,7 @@ struct decl *newdecl(
 );
 struct expr *newexpr(
 	struct loc l,
-	enum exprk k,
-	struct type *ty
+	enum exprk k
 );
 struct stmt *newstmt(
 	struct loc l,
@@ -424,12 +428,14 @@ u64 errcount();
 error lexinit();
 void lexdnit();
 enum tok lex();
+struct loc getloc();
 str getlit();
 uint64_t getdata();
 str intern(str s, size n);
 
 /* parser.c */
 
+void parserinit();
 void parse(struct unit *u);
 
 /* utis.c */

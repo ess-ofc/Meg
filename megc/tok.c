@@ -16,6 +16,7 @@ static const str toknames[] = {
 	[LID] = "ID",
 
 	[LDEF] = "def",
+	[LALIAS] = "alias",
 	[LMUT] = "mut",
 	[LCONST] = "const",
 	[LIF] = "if",

@@ -8,6 +8,6 @@ add_executable(
    tok.c
    parser.c
    scope.c
-   ast.
+   ast.c
    runetable.c
 )

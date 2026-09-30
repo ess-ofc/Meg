@@ -8,9 +8,13 @@
 #include "meg.h"
 
 struct unit *newunit(str id) {
-	struct unit *u = alloc(sizeof *u);
-	u->id = id;
-	u->s = newscope();
+	struct unit *u;
+
+	u = alloc(sizeof *u);
+	*u = (struct unit){
+		.id = id,
+		.s = newscope()
+	};
 	return u;
 }
 
@@ -19,10 +23,14 @@ struct type *newtype(
 	enum typek k,
 	enum qual q
 ) {
-	struct type *t = alloc(sizeof *t);
-	t->l = l;
-	t->k = k;
-	t->q = q;
+	struct type *t;
+
+	t = alloc(sizeof *t);
+	*t = (struct type){
+		.l = l,
+		.k = k,
+		.q = q
+	};
 	return t;
 }
 
@@ -31,22 +39,29 @@ struct decl *newdecl(
 	enum declk k,
 	str id
 ) {
-	struct decl *d = alloc(sizeof *d);
-	d->l = l;
-	d->k = k;
-	d->id = id;
+	struct decl *d;
+
+	d = alloc(sizeof *d);
+	*d = (struct decl){
+		.l = l,
+		.k = k,
+		.id = id
+	};
 	return d;
 }
 
 struct expr *newexpr(
 	struct loc l,
-	enum exprk k,
-	struct type *ty
+	enum exprk k
 ) {
-	struct expr *e = alloc(sizeof *e);
-	e->l = l;
-	e->k = k;
-	e->ty = ty;
+	struct expr *e;
+
+	e = alloc(sizeof *e);
+	*e = (struct expr){
+		.l = l,
+		.k = k,
+		.ty = newtype(l, TNONE, QNONE)
+	};
 	return e;
 }
 
@@ -55,8 +70,9 @@ struct stmt *newstmt(
 	enum stmtk k
 ) {
 	struct stmt *s = alloc(sizeof *s);
-	s->l = l;
-	s->k = k;
-	s->next = nullptr;
+	*s = (struct stmt){
+		.l = l,
+		.k = k
+	};
 	return s;
 }

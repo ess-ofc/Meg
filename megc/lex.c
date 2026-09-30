@@ -83,6 +83,10 @@ str intern(str s, size n) {
 	}
 }
 
+struct loc getloc() {
+	return loc;
+}
+
 str getlit() {
 	return lit;
 }
@@ -375,6 +379,7 @@ static enum tok getkw(
 			{"else", LELSE},
 		},
 		[5] = {
+			{"alias", LALIAS},
 			{"const", LCONST},
 			{"defer", LDEFER},
 			{"break", LBREAK},

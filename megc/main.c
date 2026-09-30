@@ -22,14 +22,14 @@ int run(void *args) {
 	struct info *i = args;
 	file = i->file;
 
-	struct unit *u;
-
 	meminit();
 	if (lexinit()) {
 		memdnit();
 		return 1;
 	}
+	parserinit();
 
+	struct unit *u;
 	u = newunit(file);
 	parse(u);
 
