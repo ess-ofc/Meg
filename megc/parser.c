@@ -7,13 +7,6 @@
 
 #include "meg.h"
 
-struct ptok {
-	enum tok t;
-	struct loc loc;
-	str lit;
-	u64 data;
-};
-
 /* Parser state.
  *
  * I decided to use pointers
@@ -23,43 +16,36 @@ struct ptok {
  * it.
  */
 LOCAL static struct {
-	struct ptok
-		tbuf[2],	 // Token buffer.
-		*cur,		 // Ptr to the current tok in tbuf.
-		*nxt;		 // Ptr to the next tok in tbuf.
+	tok tbuf[2],  // Token buffer.
+		*cur,		  // Ptr to the current tok in tbuf.
+		*nxt;		  // Ptr to the next tok in tbuf.
 } s;
 
 /* Advances to the next token. */
 static void eat(u32 times) {
 	while (times--) {
-		s.cur->t = lex();
-		s.cur->loc = getloc();
-		s.cur->lit = getlit();
-		s.cur->data = getdata();
+		*s.cur = lex();
 
 		/* Swap the tokens. */
-		struct ptok *nxt = s.cur;
+		tok *nxt = s.cur;
 		s.cur = s.nxt;
 		s.nxt = nxt;
 	}
 }
 
-static enum tok cur() {
-	return s.cur->t;
+static tokk cur() {
+	return s.cur->k;
 }
 
-static enum tok peek() {
-	return s.nxt->t;
+static tokk peek() {
+	return s.nxt->k;
 }
 
 /*
- * Gets the data of the
- * current token. Don't
- * store a this pointer
- * for a long time.
+ * Gets the current token.
  */
-static struct ptok *curd() {
-	return s.cur;
+static tok curt() {
+	return *s.cur;
 }
 
 /*
@@ -70,14 +56,12 @@ static struct ptok *curd() {
  * every LEOL (end-of-line) token
  * if it differs from t.
  */
-static bool expect(enum tok t) {
-	enum tok ct;
-
+static bool expect(tokk t) {
 again:
-	ct = cur();
+	tokk c = cur();
 
-	if (ct != t) {
-		if (ct == LEOL) {
+	if (c != t) {
+		if (c == LEOL) {
 			eat(1);
 			goto again;
 		}
@@ -97,131 +81,138 @@ void parserinit() {
 	eat(2);
 }
 
-static struct scope *pscope(enum tok term);
-static struct type *ptype();
-static struct decl *pdecl();
-static struct expr *pexpr(u32 prec);
-static struct stmt *pstmt();
+static scope *pscope(tokk term);
+static hint *phint();
+static decl *pdecl();
+static expr *pexpr(u32 prec);
+static stmt *pstmt();
 
-static struct type *ptype() {
-	struct type *t;
+static hint *phint() {
+	tok t = curt();
+	hint *h = newhint(t.l, HNONE);
 
-	t = newtype(
-		curd()->loc,
-		TNONE,
-		QNONE
-	);
-
-	switch (cur()) {
-	case LMUT:
-		t->q = QMUT;
-		eat(1);
+	switch (t.k) {
+	case LID:
+		/*
+		 * Type expressions, syntax:
+		 *   <expr>
+		 *
+		 * The expressions should
+		 * result in a EDREF to
+		 * DTYPE declaration.
+		 */
+		h->k = HEXPR;
+		h->e = pexpr(0);
 		break;
-	case LCONST:
-		t->q = QCONST;
-		eat(1);
-		break;
-	default:
-	}
-
-	switch (cur()) {
 	case LAND:
 		/*
-		 * References:
-		 *
-		 * &<type>
+		 * References, syntax;
+		 *   & <hint>
 		 */
-		t->k = TREF;
 		eat(1);
-
-		t->u.ref.ty = ptype();
+		h->k = HREF;
+		h->ty = phint();
+		break;
+	case LLPAREN:
+		/*
+		 * Functionals, syntax:
+		 *   (<scope>) <hint>
+		 */
+		eat(1);
+		h->k = HFUNC;
+		h->s = pscope(LRPAREN);
+		h->ty = phint();
 		break;
 	case LLBRACKT:
 		eat(1);
+		expect(LNONE);	 // Skips any LEOL.
 
 		if (
-			expect(LRBRACKT) ||
+			cur() == LRBRACKT ||
 			peek() == LCOLON
 		) {
 			/*
-			 * Structures:
-			 *
-			 * [<scope>]
-			 *
-			 * []
+			 * Structures, syntax:
+			 *   [<scope>]
 			 */
-			t->k = TSTRUC;
-
-			t->u.struc.s = pscope(LRBRACKT);
+			h->k = HSTRUC;
+			h->s = pscope(LRBRACKT);
+			break;
 		} else {
-			t->k = TARRAY;
-
+			/*
+			 * Arrays, syntax:
+			 * 1, slice.
+			 *   [~] <hint>
+			 * 2, sized array.
+			 *   [<constexpr>] <hint>
+			 */
+			h->k = HARRAY;
 			if (!expect(LTILDE))
-				t->u.array.sz = pexpr(0);
-
+				h->e = pexpr(0);
 			if (!expect(LRBRACKT))
-				lerro(curd()->loc, "Expected ']'.");
-
-			t->u.array.ty = ptype();
+				lerro(curt().l, "Expected ']'.");
+			h->ty = phint();
+			break;
 		}
-		break;
-	case LID:
-		/*
-		 * Declaration reference
-		 * type:
-		 *
-		 * <dref expression>
-		 */
-		t->k = TDREF;
-		t->u.dref.e = pexpr(0);
-		break;
 	default:
 	}
 
-	return t;
+	return h;
 }
 
-static struct decl *pdecl() {
-	struct ptok *pt;
-	struct decl *d;
+static decl *pdecl() {
+	decl *d;
 	str id;
 
-	pt = curd();
+	tok t = curt();
 	switch (cur()) {
 	case LID:
-		id = pt->lit;
+		id = t.lit;
 
 		switch (peek()) {
 		case LCOLON:
-			d = newdecl(pt->loc, DOBJ, pt->lit);
+			/*
+			 * Objects, syntax:
+			 * 1, normal.
+			 *   <id>: <hint>
+			 * 2, with initializer.
+			 *   <id>: <hint> = <expr>
+			 */
+			d = newdecl(t.l, DOBJ, t.lit);
 			eat(2);
-
-			d->u.obj.ty = ptype();
+			d->h = phint();
+			if (cur() == LASSIGN) {
+				eat(1);
+				d->e = pexpr(0);
+			}
 			break;
 		case LLPAREN:
-			d = newdecl(pt->loc, DFUNC, pt->lit);
+			/*
+			 * Functions, syntax:
+			 * 1, declatation.
+			 *   <id>(<scope>): <hint>
+			 * 2, definition.
+			 *   <id>(<scope>): <hint> = <expr>
+			 */
+			d = newdecl(t.l, DFUNC, t.lit);
 			eat(2);
-
-			if (!expect(LRPAREN))
-				d->u.func.s = pscope(LRPAREN);
-
+			d->s = pscope(LRPAREN);
 			if (expect(LCOLON))
-				d->u.func.ty = ptype();
+				d->h = phint();
 			else {
-				lerro(curd()->loc, "Expected ':' and result type.");
-				d->u.func.ty = newtype(
-					curd()->loc,
-					TNONE,
-					QNONE
-				);
+				t = curt();
+				lerro(t.l, "Expected ':' and result type.");
+				d->h = newhint(t.l, HNONE);
 			}
 
-			if (expect(LASSIGN))
-				d->u.func.e = pexpr(0);
+			if (cur() == LASSIGN) {
+				eat(1);
+				d->e = pexpr(0);
+			}
 			break;
 		default:
 			lerro(
-				pt->loc,
+				t.l,
 				"Expected function "
 				" or object declaration."
 			);
@@ -231,9 +222,21 @@ static struct decl *pdecl() {
 	case LDEF:
 		adeus("Type definitions unsupported.");
 	case LALIAS:
-		adeus("Type aliases unsupported.");
+		/*
+		 * Aliases, syntax:
+		 *   alias <id>: <hint>
+		 */
+		eat(1);
+		d = newdecl(t.l, DTYPE, curt().lit);
+		eat(1);
+		if (!expect(LCOLON)) {
+			lerro(curt().l, "Expected ':'.");
+			break;
+		}
+		d->h = phint();
+		break;
 	default:
-		lerro(pt->loc, "Expected declaration.");
+		lerro(t.l, "Expected declaration.");
 		id = "!Invalid";
 		goto inval;
 	}
@@ -241,15 +244,11 @@ static struct decl *pdecl() {
 	return d;
 
 inval:
-	return newdecl(
-		pt->loc,
-		DNONE,
-		id
-	);
+	return newdecl(t.l, DNONE, id);
 }
 
 static struct expr *pexpr(u32 prec) {
-	struct expr *e, *l;
+	expr *l;
 
 	expect(LNONE);	 // Skips newlines.
 
@@ -270,16 +269,17 @@ static struct expr *pexpr(u32 prec) {
 		[LLBRACE] = 100
 	};
 
-	e = newexpr(curd()->loc, ENONE);
+	tok t = curt();
+	expr *e = newexpr(t.l, ENONE);
 
-	prec = NPT[cur()];
+	prec = NPT[t.k];
 	if (prec == 0) {
-		lerro(curd()->loc, "Expected expression.");
+		lerro(t.l, "Expected expression.");
 		return e;
 	}
 
 	// Null denotation.
-	switch (cur()) {
+	switch (t.k) {
 	case LADD:
 		e->k = EPLUS;
 		goto unop;
@@ -293,37 +293,48 @@ static struct expr *pexpr(u32 prec) {
 		e->k = ENEG;
 unop:
 		eat(1);
-		e->u.un.e = pexpr(prec);
+		e->lhs = pexpr(prec);
 		break;
 	case LID:
 		e->k = EDREF;
-		e->u.dref.id = curd()->lit;
+		e->str = t.lit;
 		eat(1);
 		break;
 	case LSTRING:
 		e->k = ESTRING;
-		e->u.str.s = curd()->lit;
-		e->u.str.n = curd()->data;
+		e->str = t.lit;
+		e->n = t.data;
 		eat(1);
 		break;
 	case LRUNE:
 		e->k = ERUNE;
-		e->u.rune = curd()->data;
+		e->lint = t.data;
 		eat(1);
 		break;
 	case LINTEGER:
 		e->k = EINTEGER;
-		e->u.integer = curd()->data;
+		e->lint = strtoll(
+			t.lit,
+			nullptr,
+			t.data
+		);
+		if (errno == ERANGE)
+			lerro(t.l, "Integer too long.");
 		eat(1);
 		break;
 	case LFLOAT:
-		adeus("Floats are unspported.");
+		e->k = EFLOAT;
+		e->flt = strtod(t.lit, nullptr);
+		if (errno == ERANGE)
+			lerro(t.l, "Float too long.");
+		eat(1);
+		break;
 	case LLPAREN:
 		eat(1);
 		e->k = EPAREN;
-		e->u.un.e = pexpr(prec);
+		e->lhs = pexpr(prec);
 		if (!expect(LRPAREN))
-			lerro(curd()->loc, "Expected ')'.");
+			lerro(t.l, "Expected ')'.");
 		break;
 	case LLBRACE:
 		e->k = EOPER;
@@ -364,14 +375,15 @@ unop:
 	};
 
 led:
-	u32 nprec = LPT[cur()];
+	t = curt();
+	u32 nprec = LPT[t.k];
 	if (nprec < prec)
 		return e;
 
 	prec = nprec;
-	l = newexpr(curd()->loc, ENONE);
+	l = newexpr(t.l, ENONE);
 
-	switch (cur()) {
+	switch (t.k) {
 	case LLOR:
 		l->k = ELOR;
 		goto binop;
@@ -418,25 +430,27 @@ led:
 		l->k = EREM;
 binop:
 		eat(1);
-		l->u.bin.lhs = e;
-		l->u.bin.rhs = pexpr(prec);
+		l->lhs = e;
+		l->rhs = pexpr(prec);
 		break;
 	case LLPAREN:
 		eat(1);
-		l->k = EPAREN;
-		l->u.call.func = e;
+		l->k = ECALL;
+		l->lhs = e;
 		if (!expect(LRPAREN)) {
-			struct expr *lst;	 // Last arg.
+			expr *lst = pexpr(0);
 
-			lst = pexpr(0);
-			l->u.call.args = lst;
+			l->rhs = lst;
+			l->n = 1;
 			while (expect(LCOMMA)) {
 				lst->next = pexpr(0);
 				lst = lst->next;
+				l->n++;
 			}
 
+			t = curt();
 			if (!expect(LRPAREN))
-				lerro(curd()->loc, "Expected ')'.");
+				lerro(t.l, "Expected ')'.");
 		}
 		break;
 	default:
@@ -460,35 +474,35 @@ binop:
 }
 
 [[maybe_unused]]
-static struct stmt *pstmt() {
+static stmt *pstmt() {
 	adeus("Statements are not done.");
 }
 
-static struct scope *pscope(
-	enum tok ter  // Terminator.
-) {
-	struct scope *s;
-	struct decl *d;
+static scope *pscope(tokk ter) {
+	decl *d;
 
-	s = newscope();
+	scope *s = newscope();
 again:
-	if (expect(ter))
+	tok t = curt();
+	if (cur() == ter) {
+		eat(1);
 		return s;
+	}
 
-	switch (cur()) {
+	switch (t.k) {
 	case LNONE:
-		adeus("parser - 'An LNONE'.");
+		adeus("Received a LNONE.");
 	case LEOF:
 		return s;
 	case LCOMMA:
-		lerro(
-			curd()->loc,
-			"Unexpected separator."
+		lwarn(
+			t.l,
+			"Unecessary separator."
 		);
 		/* fallthrough */
 	case LEOL:
 		eat(1);
-		break;
+		goto again;
 	case LID:
 	case LDEF:
 	case LALIAS:
@@ -496,36 +510,37 @@ again:
 		declare(s, d);
 
 		if (expect(LEOL) || expect(LCOMMA))
-			break;
+			goto again;
 		if (expect(ter))
 			return s;
 
 		lerro(
-			curd()->loc,
+			t.l,
 			"Expected a separator or '%s'.",
-			tokname(ter)
+			tokname(ter),
+			tokname(cur()),
+			curt().lit
 		);
 		/* Attempts to continue. */
 		if (d->k != DNONE)
-			break;
+			goto again;
 
 		/* The state is unknown here. */
 		for (;;) {
 			if (expect(LEOL) || expect(LCOMMA))
-				break;
+				goto again;
 			else if (cur() == ter)
 				return s;
 
 			eat(1);
 		}
-		break;
+		goto again;
 	default:
 		return s;
 	}
-	goto again;
 }
 
-void parse(struct unit *u) {
+void parse(unit *u) {
 	u->s = pscope(LEOF);
 	if (u->s->dc == 0) {
 		erro("Empty unit.");

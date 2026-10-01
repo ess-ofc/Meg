@@ -68,6 +68,6 @@ static const str toknames[] = {
 	[LEND] = nullptr
 };
 
-str tokname(enum tok t) {
+str tokname(tokk t) {
 	return toknames[t];
 }

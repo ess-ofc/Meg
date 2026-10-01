@@ -28,10 +28,14 @@ int run(void *args) {
 		return 1;
 	}
 	parserinit();
+	analyserinit();
 
-	struct unit *u;
+	unit *u;
 	u = newunit(file);
+
 	parse(u);
+
+	analyse(u);
 
 	lexdnit();
 	memdnit();
@@ -39,7 +43,7 @@ int run(void *args) {
 }
 
 int main(int c, char **v) {
-	setlocale(LC_ALL, "");
+	setlocale(LC_ALL, "en-US.UTF-8");
 
 	str file = nullptr;
 	progname = v[0];

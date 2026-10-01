@@ -63,7 +63,7 @@ void info(str msg, ...) {
 }
 
 static void ldiag(
-	struct loc l,
+	loc l,
 	str pfx,
 	str msg,
 	va_list va
@@ -79,7 +79,7 @@ static void ldiag(
 	puts("");
 }
 
-void lerro(struct loc l, str msg, ...) {
+void lerro(loc l, str msg, ...) {
 	va_list va;
 	va_start(va);
 	errc++;
@@ -87,26 +87,26 @@ void lerro(struct loc l, str msg, ...) {
 	va_end(va);
 }
 
-void lwarn(struct loc l, str msg, ...) {
+void lwarn(loc l, str msg, ...) {
 	va_list va;
 	va_start(va);
 	if (fwerror) {
 		errc++;
-		diag(RED "error", msg, va);
+		ldiag(l, RED "error", msg, va);
 	} else {
 		ldiag(l, YELLOW "warning", msg, va);
 	}
 	va_end(va);
 }
 
-void lnote(struct loc l, str msg, ...) {
+void lnote(loc l, str msg, ...) {
 	va_list va;
 	va_start(va);
 	ldiag(l, CIAN "note", msg, va);
 	va_end(va);
 }
 
-void linfo(struct loc l, str msg, ...) {
+void linfo(loc l, str msg, ...) {
 	va_list va;
 	va_start(va);
 	ldiag(l, GREEN "info", msg, va);

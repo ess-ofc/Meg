@@ -15,10 +15,6 @@
 LOCAL static u08 *buf;
 LOCAL static size off, busz;
 LOCAL static u32 line = 1, col;
-
-LOCAL static str lit;
-LOCAL static u64 data;
-LOCAL static struct loc loc;
 LOCAL static rune ch;
 
 static struct {
@@ -83,18 +79,6 @@ str intern(str s, size n) {
 	}
 }
 
-struct loc getloc() {
-	return loc;
-}
-
-str getlit() {
-	return lit;
-}
-
-u64 getdata() {
-	return data;
-}
-
 static size runesz(u08 byte) {
 	if ((byte & 0x80) == 0x00)
 		return 1;
@@ -110,6 +94,7 @@ static size runesz(u08 byte) {
 
 static size utf8tor(size roff, rune *r) {
 	/* In case error, return 1 to avoid loops. */
+	loc l = {line, col};
 
 	if (roff >= busz) {
 		/* Not an error, it's just EOF. */
@@ -119,12 +104,12 @@ static size utf8tor(size roff, rune *r) {
 
 	size w = runesz(buf[roff]);
 	if (w == 0) {
-		lerro(loc, "Invalid unicode character.");
+		lerro(l, "Invalid unicode character.");
 		return 1;
 	}
 
 	if (w > busz - roff) {
-		lerro(loc, "Invalid rune size.");
+		lerro(l, "Invalid rune size.");
 		return 1;
 	}
 
@@ -236,10 +221,12 @@ void lexdnit() {
 }
 
 static rune getscape() {
+	loc l = {line, col};
+
 	switch (ch) {
 	case '\0':
 	case '\n':
-		lerro(loc, "Incomplete scape.");
+		lerro(l, "Incomplete scape.");
 		return 0;
 	case '0':
 		next();
@@ -279,27 +266,32 @@ static rune getscape() {
 		return '\?';
 
 	default:
-		lerro(loc, "Unknown scape character: '%lc'.", ch);
+		lerro(l, "Unknown scape character: '%lc'.", ch);
 		next();
 		return 0;
 	}
 }
 
-static enum tok getrune() {
+static tok getrune() {
+	tok ret = {
+		.k = LRUNE,
+		.l = {line, col},
+	};
+
 	assert(ch == '\'');
 	next();
 
 	switch (ch) {
 	case '\0':
 	case '\n':
-		lerro(loc, "Incomplete rune literal.");
-		return LRUNE;
+		lerro(ret.l, "Incomplete rune literal.");
+		return ret;
 	case '\\':
 		next();
-		data = getscape();
+		ret.data = getscape();
 		break;
 	default:
-		data = ch;
+		ret.data = ch;
 		next();
 	}
 
@@ -307,21 +299,23 @@ static enum tok getrune() {
 		while (ch && ch != '\n' && ch != '\'')
 			next();
 		if (ch != '\'')
-			lerro(loc, "Unterminated rune literal.");
+			lerro(ret.l, "Unterminated rune literal.");
 		else
-			lerro(loc, "Multicharacter rune literal.");
+			lerro(ret.l, "Multicharacter rune literal.");
 	} else {
 		next();
 	}
 
-	return LRUNE;
+	return ret;
 }
 
-static enum tok getstr() {
-	assert(ch == '"');
+static tok getstr() {
+	tok ret = {
+		.k = LSTRING,
+		.l = {line, col}
+	};
 
-	loc.line = line;
-	loc.col = col;
+	assert(ch == '"');
 
 	char s[16384];
 	size len = 0;
@@ -332,7 +326,7 @@ static enum tok getstr() {
 		switch (ch) {
 		case '\0':
 		case '\n':
-			lerro(loc, "Unterminated string literal.");
+			lerro(ret.l, "Unterminated string literal.");
 			goto end;
 		case '"':
 			next();
@@ -351,20 +345,24 @@ static enum tok getstr() {
 	}
 
 end:
-	lit = intern(s, len);
-	data = len;
-	return LSTRING;
+	ret.lit = intern(s, len);
+	ret.data = len;
+	return ret;
 }
 
-static enum tok getkw(
-	str id,
-	size n
-) {
+static tok getkw(loc l, str id, size n) {
+	tok ret = {
+		.k = LID,
+		.l = l,
+		.data = n,
+		.lit = id
+	};
+
 	constexpr size maxk = 4;
 
 	const struct {
 		str id;
-		enum tok t;
+		tokk t;
 	} tab[][maxk] = {
 		[2] = {
 			{"if", LIF},
@@ -391,24 +389,26 @@ static enum tok getkw(
 
 	size ts = sizeof tab / sizeof tab[0];
 	if (n >= ts)
-		return LID;
+		return ret;
 
 	auto kg = tab[n];
 	for (size i = 0; i < maxk; i++) {
 		if (!kg[i].id)
 			break;
 
-		if (!memcmp(kg[i].id, id, n))
-			return kg[i].t;
+		if (!memcmp(kg[i].id, id, n)) {
+			ret.k = kg[i].t;
+			break;
+		}
 	}
 
-	return LID;
+	return ret;
 }
 
-static enum tok getid() {
+static tok getid() {
+	loc l = {line, col};
+
 	assert(isridstart(ch));
-	loc.line = line;
-	loc.col = col;
 
 	prev();
 	size boff = off;	// Begin offset.
@@ -421,22 +421,26 @@ static enum tok getid() {
 		next();
 	}
 
-	size rawlen = eoff - boff;
-	lit = intern(beg, rawlen);
-	data = rawlen;
-	return getkw(lit, rawlen);
+	size len = eoff - boff;
+	return getkw(
+		l,
+		intern(beg, len),
+		len
+	);
 }
 
-static enum tok getnum() {
+static tok getnum() {
 	assert(isrdigit(ch));
 
-	loc.line = line;
-	loc.col = col;
-	struct loc rl;	 // Auxiliar location.
+	tok ret = {
+		.k = LINTEGER,
+		.l = {line, col}
+	};
 
 	char buf[16384];
 	size len = 0;
-	bool f = false;  // Is float?
+	bool f = false;		// Is float?
+	bool issep = false;	// Previous rune is separator.
 
 	i32 base = 10;
 	str bname = "decimal";
@@ -457,25 +461,17 @@ static enum tok getnum() {
 		default:
 			goto analyze;
 		}
+		issep = true;
 		next();
 		next();
-	}
-
-	if (!isrdigit(ch)) {
-		rl.line = line;
-		rl.col = col;
-		lerro(rl, "Empty literal.");
-
-		buf[len++] = '0';
-		goto end;
 	}
 
 analyze:
+	loc rl;
 	i32 val;
-	bool issep = false;	// Previous rune is separator.
 
 	for (;;) {
-		rl = loc;
+		rl = ret.l;
 
 		val = getdigitval(ch);
 		if (val != -1) {
@@ -489,24 +485,14 @@ analyze:
 		}
 
 		switch (ch) {
-		case 'i':
-		case 'u':
-			buf[len++] = ch;
-			next();
-			goto casep;
 		case 'f':
-			if (f) {
-				buf[len++] = ch;
-				next();
-				goto casep;
-			}
 		case 'a':
 		case 'b':
 		case 'c':
 		case 'd':
 		case 'e':
 			val = ch - 'a' + 10;
-			if (val >= 16)
+			if (val >= 16 || base != 16)
 				lerro(rl, "Invalid digit in %s literal.", bname);
 
 			buf[len++] = ch;
@@ -514,22 +500,27 @@ analyze:
 		case '.':
 			if (f || base != 10)
 				lerro(rl, "Unexpected dot.");
+
 			f = true;
 			buf[len++] = ch;
 			/* fallthrough. */
 		case ';':
 			if (issep)
 				lwarn(rl, "Consecutive separators.");
+
 			issep = true;
 			next();
 			continue;
 		case 'E':
 			if (base != 10)
 				lerro(rl, "Unexpected E-notation.");
+
 			if (issep)
 				lwarn(rl, "Redundant separators.");
+
 			buf[len++] = ch;
 			issep = true;
+			f = true;
 			next();
 			goto casee;
 		default:
@@ -568,185 +559,190 @@ casee:
 			continue;
 		}
 
-		switch (ch) {
-		case 'u':
-		case 'i':
-		case 'f':
-			buf[len++] = ch;
-			next();
-			goto casep;
-		case ';':
-			if (issep) {
+		if (ch == ';') {
+			if (issep)
 				lerro(rl, "Consecutive separators.");
-			}
-			buf[len++] = ch;
 
 			issep = true;
 			next();
 			continue;
 		}
 
-		goto end;
+		break;
 	}
-
-casep:  // casep.
-	if (!isrdigit(ch))
-		goto end;
-
-	switch (ch) {
-	case '0':
-		if (peek() == '8')
-			break;
-		goto end;
-	case '1':
-		if (peek() == '6')
-			break;
-		goto end;
-	case '3':
-		if (peek() == '2')
-			break;
-		goto end;
-	case '6':
-		if (peek() == '4')
-			break;
-		goto end;
-	default:
-		goto end;
-	}
-
-	buf[len++] = ch;
-	next();
-
-	buf[len++] = ch;
-	next();
 
 end:
-	lit = intern(buf, len);
-	data = len;
-	return f ? LFLOAT : LINTEGER;
+	if (issep)
+		lerro(rl, "Unnecessary separator.");
+	if (f)
+		ret.k = LFLOAT;
+	ret.lit = intern(buf, len);
+	ret.data = base;
+	return ret;
 }
 
-enum tok lex() {
-	data = 0;
-	lit = nullptr;
-
+tok lex() {
 	/* Skips every space. */
 	while (isrspace(ch))
 		next();
 
+	tok ret = {
+		.l = {line, col}
+	};
+
 	if (ch == '\n') {
 		next();
-		loc.col++;
-		return LEOL;
+		ret.k = LEOL;
+		return ret;
 	}
 
-	loc.line = line;
-	loc.col = col;
-
+	tokk k = LNONE;
 	switch (ch) {
 	case '\0':
-		return LEOF;
+		k = LEOF;
+		break;
+	case '\\':
+		next();
+		while (ch != '\\') {
+			if (ch == '\0') {
+				lerro(ret.l, "Unterminated comment.");
+				break;
+			}
+			next();
+		}
+		next();
+		return lex();
 	case '\'':
 		return getrune();
 	case '"':
 		return getstr();
 	case '+':
 		next();
-		return LADD;
+		k = LADD;
+		break;
 	case '-':
 		next();
-		return LSUB;
+		k = LSUB;
+		break;
 	case '*':
 		next();
-		return LMUL;
+		k = LMUL;
+		break;
 	case '/':
 		next();
-		return LDIV;
+		k = LDIV;
+		break;
 	case '%':
 		next();
-		return LREM;
+		k = LREM;
+		break;
 	case '&':
 		next();
 		if (ch == '&') {
 			next();
-			return LLAND;
+			k = LLAND;
+			break;
 		}
-		return LAND;
+		k = LAND;
+		break;
 	case '|':
 		next();
 		if (ch == '|') {
 			next();
-			return LLOR;
+			k = LLOR;
+			break;
 		}
-		return LBOR;
+		k = LBOR;
+		break;
 	case '^':
 		next();
-		return LEOR;
+		k = LEOR;
+		break;
 	case '!':
 		next();
 		if (ch == '=') {
 			next();
-			return LNEQ;
+			k = LNEQ;
+			break;
 		}
-		return LNEG;
+		k = LNEG;
+		break;
 	case '=':
 		next();
 		switch (ch) {
 		case '=':
 			next();
-			return LEQL;
+			k = LEQL;
+			break;
 		case '>':
 			next();
-			return LRESULT;
+			k = LRESULT;
+			break;
 		}
-		return LASSIGN;
+		k = LASSIGN;
+		break;
 	case '>':
 		next();
 		if (ch == '=') {
 			next();
-			return LGEQ;
+			k = LGEQ;
+			break;
 		}
-		return LGTR;
+		k = LGTR;
+		break;
 	case '<':
 		next();
 		if (ch == '=') {
 			next();
-			return LLEQ;
+			k = LLEQ;
+			break;
 		}
-		return LLSS;
+		k = LLSS;
+		break;
 	case '.':
 		next();
-		return LDOT;
+		k = LDOT;
+		break;
 	case ',':
 		next();
-		return LCOMMA;
+		k = LCOMMA;
+		break;
 	case ':':
 		next();
-		return LCOLON;
+		k = LCOLON;
+		break;
 	case '(':
 		next();
-		return LLPAREN;
+		k = LLPAREN;
+		break;
 	case '[':
 		next();
-		return LLBRACKT;
+		k = LLBRACKT;
+		break;
 	case '{':
 		next();
-		return LLBRACE;
+		k = LLBRACE;
+		break;
 	case ')':
 		next();
-		return LRPAREN;
+		k = LRPAREN;
+		break;
 	case ']':
 		next();
-		return LRBRACKT;
+		k = LRBRACKT;
+		break;
 	case '}':
 		next();
-		return LRBRACE;
+		k = LRBRACE;
+		break;
 	case '~':
 		next();
-		return LTILDE;
+		k = LTILDE;
+		break;
 	case '$':
 		next();
-		return LDOLLAR;
+		k = LDOLLAR;
+		break;
 	default:
 		if (isridstart(ch))
 			return getid();
@@ -754,8 +750,10 @@ enum tok lex() {
 		if (isrdigit(ch))
 			return getnum();
 
-		next();
-		lerro(loc, "Unknown character U+%04X.", ch);
-		return LNONE;
+		lerro(ret.l, "Unknown character U+%X.", ch);
+		ret.k = LNONE;
 	}
+
+	ret.k = k;
+	return ret;
 }

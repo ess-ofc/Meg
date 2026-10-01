@@ -7,42 +7,27 @@
 
 #include "meg.h"
 
-struct unit *newunit(str id) {
-	struct unit *u;
-
-	u = alloc(sizeof *u);
-	*u = (struct unit){
+unit *newunit(str id) {
+	unit *u = alloc(sizeof *u);
+	*u = (unit){
 		.id = id,
 		.s = newscope()
 	};
 	return u;
 }
 
-struct type *newtype(
-	struct loc l,
-	enum typek k,
-	enum qual q
-) {
-	struct type *t;
-
-	t = alloc(sizeof *t);
-	*t = (struct type){
+hint *newhint(loc l, hintk k) {
+	hint *h = alloc(sizeof *h);
+	*h = (hint){
 		.l = l,
-		.k = k,
-		.q = q
+		.k = k
 	};
-	return t;
+	return h;
 }
 
-struct decl *newdecl(
-	struct loc l,
-	enum declk k,
-	str id
-) {
-	struct decl *d;
-
-	d = alloc(sizeof *d);
-	*d = (struct decl){
+decl *newdecl(loc l, declk k, str id) {
+	decl *d = alloc(sizeof *d);
+	*d = (decl){
 		.l = l,
 		.k = k,
 		.id = id
@@ -50,27 +35,22 @@ struct decl *newdecl(
 	return d;
 }
 
-struct expr *newexpr(
-	struct loc l,
-	enum exprk k
-) {
-	struct expr *e;
-
-	e = alloc(sizeof *e);
-	*e = (struct expr){
+expr *newexpr(loc l, exprk k) {
+	expr *e = alloc(sizeof *e);
+	*e = (expr){
 		.l = l,
 		.k = k,
-		.ty = newtype(l, TNONE, QNONE)
+		.ty = newtype(l, TNONE)
 	};
 	return e;
 }
 
-struct stmt *newstmt(
-	struct loc l,
-	enum stmtk k
+stmt *newstmt(
+	loc l,
+	stmtk k
 ) {
-	struct stmt *s = alloc(sizeof *s);
-	*s = (struct stmt){
+	stmt *s = alloc(sizeof *s);
+	*s = (stmt){
 		.l = l,
 		.k = k
 	};

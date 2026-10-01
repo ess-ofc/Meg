@@ -10,13 +10,11 @@
 /* Large includes. */
 #include <xxh3.h>
 
-struct scope *newscope() {
-	struct scope *s;
-
-	s = alloc(sizeof *s);
+scope *newscope() {
+	scope *s = alloc(sizeof *s);
 	s->fst = nullptr;
 	s->lst = nullptr;
-	s->maps = 4;
+	s->maps = 16;
 	s->dc = 0;
 
 	size bytes = sizeof *s->map * s->maps;
@@ -25,15 +23,13 @@ struct scope *newscope() {
 	return s;
 }
 
-static void check(
-	struct scope *s
-) {
+static void check(scope *s) {
 	if ((float) s->dc / s->maps < 0.80)
 		return;
 
 	auto bukp = s->fst;
 
-	s->fst = nullptr;
+	s->lst = nullptr;
 	s->dc = 0;
 	s->maps *= 4;
 
@@ -47,10 +43,7 @@ static void check(
 	}
 }
 
-void declare(
-	struct scope *s,
-	struct decl *d
-) {
+void declare(scope *s, decl *d) {
 	check(s);
 
 	size len = strlen(d->id);
@@ -60,8 +53,11 @@ void declare(
 	for (;;) {
 		auto p = &s->map[pos];
 
-		if (p->h == h && p->len == len)
+		if (p->h == h && p->len == len) {
+			lerro(d->l, "Redeclaration of '%s'.", d->id);
+			lnote(p->d->l, "Previous declaration is here.");
 			return;
+		}
 
 		if (!p->d) {
 			p->d = d;
@@ -81,10 +77,7 @@ void declare(
 	}
 }
 
-struct decl *getdecl(
-	struct scope *s,
-	str id
-) {
+decl *getdecl(scope *s, str id) {
 	size len = strlen(id);
 	u64 h = XXH3_64bits(id, len);
 
@@ -95,10 +88,25 @@ struct decl *getdecl(
 		if (p->h == h && p->len == len)
 			return p->d;
 
-		if (!p->d) {
+		if (!p->d)
 			return nullptr;
-		}
 
 		pos = (pos + 1) & (s->maps - 1);
 	}
+}
+
+bool scopeql(scope *x, scope *y) {
+	if (x->dc != y->dc)
+		return false;
+
+	auto xb = x->fst;
+	auto yb = y->fst;
+	while (xb && yb) {
+		if (!tyeql(xb->d->ty, yb->d->ty))
+			return false;
+		xb = xb->next;
+		yb = yb->next;
+	}
+
+	return true;
 }
