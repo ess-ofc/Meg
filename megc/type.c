@@ -40,5 +40,7 @@ bool tyeql(type *x, type *y) {
 	case TARRAY:
 		return x->asz == y->asz &&
 			tyeql(x->ty, y->ty);
+	case TTYPE:
+		return tyeql(x->ty->ty, y->ty->ty);
 	}
 }

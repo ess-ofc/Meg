@@ -39,6 +39,7 @@ typedef u08 error;
 
 typedef struct loc loc;
 typedef struct scope scope;
+typedef struct list list;
 typedef struct unit unit;
 typedef struct type type;
 typedef struct hint hint;
@@ -85,6 +86,19 @@ struct scope {
 	size dc;			 // Decl count.
 };
 
+/* Lists. */
+
+/*
+ * Lists contains a linked
+ * list of expressions and
+ * a pointer to the last
+ * expression.
+ */
+struct list {
+	expr *fst, *lst;
+	size ec;
+};
+
 /* Types. */
 
 enum typek : u08 {
@@ -96,7 +110,8 @@ enum typek : u08 {
 	TREF,
 	TFUNC,
 	TSTRUC,
-	TARRAY
+	TARRAY,
+	TTYPE
 };
 typedef enum typek typek;
 
@@ -188,7 +203,6 @@ enum exprk : u08 {
 	EPLUS,
 	EMINUS,
 	EOPER,
-	ESELECT,
 
 	EPAREN,
 	EDREF,
@@ -212,10 +226,16 @@ struct expr {
 	expr *lhs;
 	expr *rhs;
 	str str;
+	decl *d;
+
+	/* ESTRING */
 	size n;
 
-	/* EDREF */
-	decl *d;
+	/* ECALL, EARRAY */
+	list *ls;
+
+	/* ESTRUC */
+	scope *s;
 
 	/* EOPER */
 	stmt *oper;
@@ -360,6 +380,12 @@ scope *newscope();
 void declare(scope *s, decl *d);
 decl *getdecl(scope *s, str id);
 bool scopeql(scope *x, scope *y);
+
+/* list.c */
+
+list *newlist();
+void append(list *l, expr *e);
+bool listeql(list *x, list *y);
 
 /* diag.c */
 

@@ -9,6 +9,7 @@ add_executable(
    parser.c
    analyser.c
    scope.c
+   list.c
    type.c
    ast.c
    runetable.c

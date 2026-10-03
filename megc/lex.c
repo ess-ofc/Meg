@@ -638,21 +638,21 @@ tok lex() {
 		break;
 	case '&':
 		next();
+		k = LAND;
 		if (ch == '&') {
 			next();
 			k = LLAND;
 			break;
 		}
-		k = LAND;
 		break;
 	case '|':
 		next();
+		k = LBOR;
 		if (ch == '|') {
 			next();
 			k = LLOR;
 			break;
 		}
-		k = LBOR;
 		break;
 	case '^':
 		next();
@@ -660,15 +660,16 @@ tok lex() {
 		break;
 	case '!':
 		next();
+		k = LNEG;
 		if (ch == '=') {
 			next();
 			k = LNEQ;
 			break;
 		}
-		k = LNEG;
 		break;
 	case '=':
 		next();
+		k = LASSIGN;
 		switch (ch) {
 		case '=':
 			next();
@@ -679,25 +680,24 @@ tok lex() {
 			k = LRESULT;
 			break;
 		}
-		k = LASSIGN;
 		break;
 	case '>':
 		next();
+		k = LGTR;
 		if (ch == '=') {
 			next();
 			k = LGEQ;
 			break;
 		}
-		k = LGTR;
 		break;
 	case '<':
 		next();
+		k = LLSS;
 		if (ch == '=') {
 			next();
 			k = LLEQ;
 			break;
 		}
-		k = LLSS;
 		break;
 	case '.':
 		next();

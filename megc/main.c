@@ -87,7 +87,7 @@ int main(int c, char **v) {
 	};
 
 	/*
-	 * TODO: Accept multiple file
+	 * TODO: Accept multiple files
 	 * and run multiple threads.
 	 */
 	int ret = run(&args);

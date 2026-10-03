@@ -13,7 +13,7 @@ struct mem {
 };
 
 /* List of memory blocks. */
-LOCAL static struct mem *list;
+LOCAL static struct mem *mlist;
 /* Allocation count. */
 LOCAL static int allc;
 /* Bytes allocated. */
@@ -34,12 +34,12 @@ void memdnit() {
 		);
 	}
 
-	while (list) {
-		struct mem *next = list->next;
-		free(list);
+	while (mlist) {
+		struct mem *next = mlist->next;
+		free(mlist);
 
 		allc--;
-		list = next;
+		mlist = next;
 	}
 
 	if (allc != 0)
@@ -48,8 +48,8 @@ void memdnit() {
 
 void *alloc(size n) {
 	struct mem *mem = malloc(n + 8);
-	mem->next = list;
-	list = mem;
+	mem->next = mlist;
+	mlist = mem;
 
 	bytes += n;
 	allc++;

@@ -61,11 +61,12 @@ static const str toknames[] = {
 	[LRBRACKT] = "]",
 	[LRBRACE] = "}",
 
+	[LASSIGN] = "=",
 	[LRESULT] = "=>",
 	[LTILDE] = "~",
 	[LDOLLAR] = "$",
 
-	[LEND] = nullptr
+	[LEND] = "END"
 };
 
 str tokname(tokk t) {

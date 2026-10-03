@@ -1,0 +1,109 @@
+\ Definitions. \
+
+struct := [
+   value := 10
+   alias int: i32
+]
+
+true: bool
+false: bool
+
+\ 1 Declarations. \
+
+\  1.1 Functions \
+
+main(): i32 \ Declaration. \
+main2(): i32 = 10 \ Definition. \
+add(x: i32, y: i32): i32 \ With args. \
+
+\ Too many args. \
+abc(
+   a: i32,
+   b: i32,
+   c: i32
+): i32
+
+\ Many args without comma. \
+abc2(
+   a: i32
+   b: i32
+   c: i32
+): i32
+
+getval() := 10 \ Inference. \
+
+\  1.2 Variables. \
+
+var0: i32 \ Declaration. \
+var1: i32 = 10 \ Definition. \
+var2 := 10 \ Inference. \
+
+\  1.3 Aliases. \
+
+alias int: i32 \ Alias named 'int' for i32. \
+
+\ 2 Expressions. \
+\  2.1 Binary. \
+
+a := 10 + 3
+b := 10 - 3
+c := 10 * 3
+d := 10 / 3
+e := 10 % 3
+f := 10 & 3
+g := 10 | 3
+h := 10 ^ 3
+i := true && false
+j := false || true
+k := 10 == 3
+l := 10 != 3
+m := 10 > 3
+n := 10 < 3
+o := 10 >= 3
+p := 10 <= 3
+q := struct.value
+
+\  2.2 Unary. \
+
+r := &struct
+s := getval()
+t := !false
+u := +10
+v := -10
+x := (10 - 3)
+
+\  2.3 Literals. \
+
+y := 10
+z := 10.0
+a2 := 'r'
+b2 := "Quem matou Odete Roitman?!"
+
+\  2.4 Articuations. \
+
+c2 := [
+   x: i32
+   y := 10
+]
+d2 := [
+   10
+   20
+   30
+]
+
+\ 3 Hints. \
+
+thevariable0: i32 \ Type expr. \
+thevariable1: struct.int
+
+thevariable2: &i32 \ References. \
+
+thevariable3: ()i32 \ Functionals. \
+thevariable4: (x: i32, y: i32)i32
+
+thevariable5: [x: i32, y: i32] \ Structures. \
+thevariable6: []
+
+thevariable7: [10]i32 \ Arrays. \
+thevariable8: [~]i32
+

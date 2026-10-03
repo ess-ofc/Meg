@@ -81,6 +81,7 @@ void parserinit() {
 	eat(2);
 }
 
+static list *plist(tokk ter);
 static scope *pscope(tokk term);
 static hint *phint();
 static decl *pdecl();
@@ -259,14 +260,14 @@ static struct expr *pexpr(u32 prec) {
 		[LFLOAT] = 1,
 		[LSTRING] = 1,
 		[LRUNE] = 1,
+		[LLPAREN] = 1,
+		[LLBRACE] = 1,
+		[LLBRACKT] = 1,
 
 		[LADD] = 90,
 		[LSUB] = 90,
 		[LAND] = 90,
 		[LNEG] = 90,
-
-		[LLPAREN] = 100,
-		[LLBRACE] = 100
 	};
 
 	tok t = curt();
@@ -291,6 +292,7 @@ static struct expr *pexpr(u32 prec) {
 		goto unop;
 	case LNEG:
 		e->k = ENEG;
+		/* fallthrough */
 unop:
 		eat(1);
 		e->lhs = pexpr(prec);
@@ -340,6 +342,17 @@ unop:
 		e->k = EOPER;
 		adeus("Operations are not supported.");
 		break;
+	case LLBRACKT:
+		eat(1);
+		expect(LNONE);	 // Skips newlines.
+		if (peek() == LCOLON) {
+			e->k = ESTRUC;
+			e->s = pscope(LRBRACKT);
+			break;
+		}
+		e->k = EARRAY;
+		e->ls = plist(LRBRACKT);
+		break;
 	default:
 		adeus("Unsupported expression.");
 		return e;
@@ -371,7 +384,8 @@ unop:
 		[LDIV] = 80,
 		[LREM] = 80,
 
-		[LLPAREN] = 100
+		[LLPAREN] = 110,
+		[LDOT] = 110,
 	};
 
 led:
@@ -384,8 +398,8 @@ led:
 	l = newexpr(t.l, ENONE);
 
 	switch (t.k) {
-	case LLOR:
-		l->k = ELOR;
+	case LAND:
+		l->k = EAND;
 		goto binop;
 	case LBOR:
 		l->k = EBOR;
@@ -395,6 +409,9 @@ led:
 		goto binop;
 	case LLAND:
 		l->k = ELAND;
+		goto binop;
+	case LLOR:
+		l->k = ELOR;
 		goto binop;
 	case LEQL:
 		l->k = EEQL;
@@ -428,30 +445,30 @@ led:
 		goto binop;
 	case LREM:
 		l->k = EREM;
+		/* fallthrough */
 binop:
 		eat(1);
 		l->lhs = e;
 		l->rhs = pexpr(prec);
 		break;
+	case LDOT:
+		eat(1);
+		l->k = EDOT;
+		l->lhs = e;
+		expect(LNONE);
+		t = curt();
+		if (t.k != LID) {
+			lerro(t.l, "Expected identifier.");
+			break;
+		}
+		l->str = t.lit;
+		eat(1);
+		break;
 	case LLPAREN:
 		eat(1);
 		l->k = ECALL;
 		l->lhs = e;
-		if (!expect(LRPAREN)) {
-			expr *lst = pexpr(0);
-
-			l->rhs = lst;
-			l->n = 1;
-			while (expect(LCOMMA)) {
-				lst->next = pexpr(0);
-				lst = lst->next;
-				l->n++;
-			}
-
-			t = curt();
-			if (!expect(LRPAREN))
-				lerro(t.l, "Expected ')'.");
-		}
+		l->ls = plist(LRPAREN);
 		break;
 	default:
 		/*
@@ -478,13 +495,80 @@ static stmt *pstmt() {
 	adeus("Statements are not done.");
 }
 
-static scope *pscope(tokk ter) {
-	decl *d;
+static list *plist(tokk ter) {
+	expr *e;
+	list *l = newlist();
 
-	scope *s = newscope();
 again:
 	tok t = curt();
-	if (cur() == ter) {
+	if (t.k == ter) {
+		eat(1);
+		return l;
+	}
+
+	switch (t.k) {
+	case LNONE:
+		adeus("An LNONE.");
+	case LEOF:
+		lerro(t.l, "Unexpected EOF.");
+		return l;
+	case LCOMMA:
+		/*
+		 * Avoid things as:
+		 *   list := [
+		 *      10,
+		 *      , <- here, uncessary comma.
+		 *      20,
+		 *   ]
+		 */
+		lwarn(
+			t.l,
+			"Unecessary separator."
+		);
+		/* fallthrough */
+	case LEOL:
+		eat(1);
+		goto again;
+	default:
+		e = pexpr(0);
+		append(l, e);
+
+		if (expect(LEOL) || expect(LCOMMA))
+			goto again;
+		if (expect(ter))
+			return l;
+
+		lerro(
+			t.l,
+			"Expected a separator or '%s'.",
+			tokname(ter),
+			tokname(cur()),
+			curt().lit
+		);
+		/* Attempts to continue. */
+		if (e->k != ENONE)
+			goto again;
+
+		/* The state is unknown here. */
+		for (;;) {
+			if (expect(LEOL) || expect(LCOMMA))
+				goto again;
+			else if (cur() == ter)
+				return l;
+
+			eat(1);
+		}
+		goto again;
+	}
+}
+
+static scope *pscope(tokk ter) {
+	decl *d;
+	scope *s = newscope();
+
+again:
+	tok t = curt();
+	if (t.k == ter) {
 		eat(1);
 		return s;
 	}
@@ -493,6 +577,7 @@ again:
 	case LNONE:
 		adeus("Received a LNONE.");
 	case LEOF:
+		lerro(t.l, "Unexpected EOF.");
 		return s;
 	case LCOMMA:
 		lwarn(
@@ -503,9 +588,7 @@ again:
 	case LEOL:
 		eat(1);
 		goto again;
-	case LID:
-	case LDEF:
-	case LALIAS:
+	default:
 		d = pdecl();
 		declare(s, d);
 
@@ -517,9 +600,7 @@ again:
 		lerro(
 			t.l,
 			"Expected a separator or '%s'.",
-			tokname(ter),
-			tokname(cur()),
-			curt().lit
+			tokname(ter)
 		);
 		/* Attempts to continue. */
 		if (d->k != DNONE)
@@ -535,8 +616,6 @@ again:
 			eat(1);
 		}
 		goto again;
-	default:
-		return s;
 	}
 }
 
