@@ -16,6 +16,7 @@ static const str toknames[] = {
 	[LID] = "ID",
 
 	[LDEF] = "def",
+	[LALIAS] = "alias",
 	[LMUT] = "mut",
 	[LCONST] = "const",
 	[LIF] = "if",
@@ -60,13 +61,14 @@ static const str toknames[] = {
 	[LRBRACKT] = "]",
 	[LRBRACE] = "}",
 
+	[LASSIGN] = "=",
 	[LRESULT] = "=>",
 	[LTILDE] = "~",
 	[LDOLLAR] = "$",
 
-	[LEND] = nullptr
+	[LEND] = "END"
 };
 
-str tokname(enum tok t) {
+str tokname(tokk t) {
 	return toknames[t];
 }

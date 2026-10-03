@@ -1,0 +1,546 @@
+/*
+ * ======================================
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Copyright (c) 2026 Elizeu S. Souza
+ * ======================================
+ */
+
+#include "meg.h"
+
+LOCAL static bool analsisok = false;
+
+/* Scope limit. */
+constexpr static size SLIMIT = 1024;
+/* Socope stack. */
+LOCAL static scope *sstck[SLIMIT];
+/* Scope count. */
+LOCAL static u32 scount;
+/* Default types. */
+LOCAL static type
+	*ti08 = &(type){.k = TINT, .sz = 1, .sign = true},
+	*ti16 = &(type){.k = TINT, .sz = 2, .sign = true},
+	*ti32 = &(type){.k = TINT, .sz = 4, .sign = true},
+	*ti64 = &(type){.k = TINT, .sz = 8, .sign = true},
+	*tu08 = &(type){.k = TINT, .sz = 1, .sign = false},
+	*tu16 = &(type){.k = TINT, .sz = 2, .sign = false},
+	*tu32 = &(type){.k = TINT, .sz = 4, .sign = false},
+	*tu64 = &(type){.k = TINT, .sz = 8, .sign = false},
+	*tf32 = &(type){.k = TFLOAT, .sz = 4},
+	*tf64 = &(type){.k = TFLOAT, .sz = 8},
+	*trune = &(type){.k = TRUNE, .sz = 4},
+	*tbool = &(type){.k = TBOOL, .sz = 1},
+	*astr = &(type){.k = TARRAY, .asz = -1};	// .sz should be set in analyserinit().
+
+static decl *dtype(
+	str id,
+	type *ty
+) {
+	struct decl *d;
+
+	d = newdecl((loc){}, DTYPE, id);
+	d->ty = newtype((loc){}, TTYPE);
+	d->ty->ty = ty;
+	return d;
+}
+
+void analyserinit() {
+	scope *mags;
+
+	/* Set 'str' alias a an array of bytes. */
+	astr->ty = tu08;
+
+	/* Initializes the magic scope. */
+	mags = newscope();
+
+	/* Declares all. */
+	declare(mags, dtype("i08", ti08));
+	declare(mags, dtype("i16", ti16));
+	declare(mags, dtype("i32", ti32));
+	declare(mags, dtype("i64", ti64));
+	declare(mags, dtype("u08", tu08));
+	declare(mags, dtype("u16", tu16));
+	declare(mags, dtype("u32", tu32));
+	declare(mags, dtype("u64", tu64));
+	declare(mags, dtype("f32", tf32));
+	declare(mags, dtype("f64", tf64));
+	declare(mags, dtype("rune", trune));
+	declare(mags, dtype("bool", tbool));
+	/* Aliases. */
+	declare(mags, dtype("str", astr));
+
+	/* Stack it. */
+	sstck[0] = mags;
+	scount = 1;
+
+	analsisok = true;
+}
+
+static void inscope(scope *s) {
+	if (scount == SLIMIT)
+		adeus("Scope limit reached.");
+	sstck[scount++] = s;
+}
+
+static void outscope() {
+	if (scount == 0)
+		adeus("Scope count error.");
+	sstck[--scount] = nullptr;
+}
+
+static decl *findecl(loc l, str id);
+static void aply(loc l, type **x, struct type *y);
+static bool istyintflt(type *t);
+static bool istybool(type *t);
+static bool istycastable(type *t);
+static void alist(list *s);
+static void ascope(scope *s);
+static type *ahint(hint *h);
+static void adecl(decl *d);
+static void aexpr(expr *e);
+[[maybe_unused]]
+static void astmt(stmt *s);
+
+static void aply(loc l, type **px, type *y) {
+	type *x = *px;
+	if (!y) {
+		*px = nullptr;
+		return;
+	}
+
+	if (!x || x->k == TNONE) {
+		*px = y;
+		return;
+	}
+
+	if (x->k != y->k)
+		goto err;
+
+	switch (x->k) {
+	case TNONE:
+		adeus("TNONE not expected.");
+	case TINT:
+	case TFLOAT:
+	case TBOOL:
+	case TRUNE:
+	case TFUNC:
+	case TTYPE:
+		if (!tyeql(x, y))
+			goto err;
+		return;
+	case TARRAY:
+		if (x->asz != y->asz)
+			lerro(l, "Aplying arrays with"
+						" different sizes.");
+		/* fallthrough */
+	case TREF:
+		aply(x->l, &x->ty, y->ty);
+		return;
+	case TSTRUC:
+		if (!scopeql(x->s, y->s))
+			lerro(l, "Aplying different"
+						" structures.");
+		return;
+	}
+
+err:
+	lerro(l, "Aplying different types.");
+}
+
+static decl *findecl(loc l, str id) {
+	decl *x;
+	int i = scount;
+
+	while (i--) {
+		x = getdecl(sstck[i], id);
+		if (x)
+			return x;
+	}
+
+	lerro(l, "Use of undeclared identifier '%s'.", id);
+	return nullptr;
+}
+
+static bool istyintflt(type *t) {
+	return t->k == TINT || t->k == TFLOAT;
+}
+
+static bool istybool(type *t) {
+	return t->k == TBOOL;
+}
+
+static bool istycastable(type *t) {
+	switch (t->k) {
+	case TINT:
+	case TFLOAT:
+	case TRUNE:
+	case TBOOL:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static type *ahint(hint *h) {
+	type *t;
+
+	switch (h->k) {
+	case HNONE:
+		t = newtype(h->l, TNONE);
+		break;
+	case HEXPR:
+		aexpr(h->e);
+		if (h->e->ty->k != TTYPE) {
+			lerro(h->l, "Not a type.");
+			t = newtype(h->l, TNONE);
+			break;
+		}
+		t = h->e->d->ty->ty;
+		break;
+	case HREF:
+		t = newtype(h->l, TREF);
+		t->ty = ahint(h->ty);
+		break;
+	case HFUNC:
+		t = newtype(h->l, TFUNC);
+		ascope(h->s);
+		t->s = h->s;
+		t->ty = ahint(h->ty);
+		break;
+	case HSTRUC:
+		t = newtype(h->l, TSTRUC);
+		ascope(h->s);
+		t->s = h->s;
+		break;
+	case HARRAY:
+		t = newtype(h->l, TARRAY);
+		t->ty = ahint(h->ty);
+
+		/* Slice? */
+		if (!h->e) {
+			t->sz = -1;
+			break;
+		}
+
+		/* Gets the array size. */
+		aexpr(h->e);
+		if (h->e->k != EINTEGER) {
+			lerro(
+				h->e->l,
+				"Expected integer constant."
+			);
+			t->sz = 0;
+			break;
+		}
+		t->sz = h->e->lint;
+		break;
+	}
+
+	return t;
+}
+
+static void adecl(decl *d) {
+	switch (d->k) {
+	case DNONE:
+		/*
+		 * May be intentionally
+		 * generated by parser.c,
+		 * so break.
+		 */
+		break;
+	case DFUNC:
+		ascope(d->s);
+		d->ty = newtype(d->l, TFUNC);
+		d->ty->s = d->s;
+		d->ty->ty = ahint(d->h);
+		if (d->e) {
+			inscope(d->s);
+			aexpr(d->e);
+			aply(
+				d->e->l,
+				&d->ty->ty,
+				d->e->ty
+			);
+			outscope();
+			break;
+		}
+
+		if (!d->ty->ty->k)
+			lerro(d->ty->ty->l, "Can't infer result type.");
+		break;
+	case DOBJ:
+		d->ty = ahint(d->h);
+		if (d->e) {
+			aexpr(d->e);
+			aply(d->e->l, &d->ty, d->e->ty);
+			break;
+		}
+
+		if (!d->ty->k)
+			lerro(d->ty->l, "Can't infer type.");
+		break;
+	case DTYPE:
+		/* May be aliases. */
+		if (d->h) {
+			d->ty = newtype(d->l, TTYPE);
+			d->ty->ty = ahint(d->h);
+		}
+		break;
+	}
+}
+
+static void aexpr(expr *e) {
+	type *ety;
+	expr *arg;
+	dbuk *par;
+
+	switch (e->k) {
+	case ENONE:
+		/*
+		 * May be intentionally
+		 * generated by parser.c,
+		 * so break.
+		 */
+		break;
+	case EADD:
+	case ESUB:
+	case EMUL:
+	case EDIV:
+	case EREM:
+	case EAND:
+	case EBOR:
+	case EEOR:
+		aexpr(e->lhs);
+		aexpr(e->rhs);
+		if (!e->lhs->ty)
+			goto nonety;
+		if (!istyintflt(e->lhs->ty)) {
+			lerro(e->l, "Expected integer or float operands.");
+			goto nonety;
+		}
+		goto aplybin;
+	case ELAND:
+	case ELOR:
+		aexpr(e->lhs);
+		aexpr(e->rhs);
+		if (!e->lhs->ty)
+			goto nonety;
+		if (!istybool(e->lhs->ty)) {
+			lerro(e->l, "Expected boolean operands.'%d'", e->lhs->ty->k);
+			goto nonety;
+		}
+		/* fallthrough */
+aplybin:
+		aply(e->l, &e->ty, e->lhs->ty);
+		aply(e->l, &e->ty, e->rhs->ty);
+		break;
+	case EEQL:
+	case ENEQ:
+	case EGTR:
+	case ELSS:
+	case EGEQ:
+	case ELEQ:
+		e->ty = tbool;
+		aexpr(e->lhs);
+		aexpr(e->rhs);
+		aply(
+			e->l,
+			&e->lhs->ty,
+			e->rhs->ty
+		);
+		break;
+	case EDOT:
+		aexpr(e->lhs);
+		if (!e->str || !e->lhs->ty)
+			goto nonety;
+		if (!e->lhs->ty->s) {
+			lerro(e->lhs->l, "Can't access the scope.");
+			goto nonety;
+		}
+		e->d = getdecl(
+			e->lhs->ty->s,
+			e->str
+		);
+		if (e->d) {
+			e->ty = e->d->ty;
+			break;
+		}
+		lerro(e->l, "'%s' not found.", e->str);
+		goto nonety;
+	case EREF:
+		aexpr(e->lhs);
+		if (!e->lhs->ty)
+			goto nonety;
+		e->ty = newtype(e->l, TREF);
+		e->ty->ty = e->lhs->ty;
+		break;
+	case ENOT:
+	case EPLUS:
+	case EMINUS:
+		aexpr(e->lhs);
+		if (!e->lhs->ty)
+			goto nonety;
+		if (!istyintflt(e->lhs->ty)) {
+			lerro(e->l, "Expected integer or float operand.");
+			goto nonety;
+		}
+		goto aplyun;
+	case ENEG:
+		aexpr(e->lhs);
+		if (!e->lhs->ty)
+			goto nonety;
+		if (!istybool(e->lhs->ty)) {
+			lerro(e->l, "Expected boolean operand.");
+			goto nonety;
+		}
+		/* fallthrough */
+aplyun:
+		aply(e->l, &e->ty, e->lhs->ty);
+		break;
+	case ECALL:
+		aexpr(e->lhs);
+		alist(e->ls);
+		ety = e->lhs->ty;
+		if (!ety)
+			goto nonety;
+
+		/* Check its type and result type. */
+		switch (ety->k) {
+		case TFUNC:
+			aply(e->l, &e->ty, ety->ty);
+
+			/* Check argument count. */
+			if (e->ls->ec != ety->s->dc) {
+				lerro(
+					e->l,
+					"Expected %zu parameters,"
+					" received %zu.",
+					ety->s->dc,
+					e->ls->ec
+				);
+				break;
+			}
+
+			/* Analyses the arguments. */
+			arg = e->ls->fst;
+			par = ety->s->fst;
+			while (arg) {
+				aply(
+					arg->l,
+					&arg->ty,
+					par->d->ty
+				);
+
+				arg = arg->next;
+				par = par->next;
+			}
+			break;
+		case TTYPE:
+			if (!istycastable(ety->ty)) {
+				lerro(ety->l, "Cannot cast to this type.");
+				goto nonety;
+			}
+
+			e->ty = ety->ty;
+
+			/* Check the arguments. */
+			if (e->ls->ec != 1)
+				lerro(e->l, "Expected 1 argument to cast.");
+			arg = e->ls->fst;
+			while (arg) {
+				if (!istycastable(arg->ty))
+					lerro(arg->l, "Argument is not castable.");
+
+				arg = arg->next;
+			}
+			break;
+		default:
+			lerro(e->lhs->l, "Expected functional or type type.");
+			goto nonety;
+		}
+		break;
+	case EPAREN:
+		aexpr(e->lhs);
+		aply(e->l, &e->ty, e->lhs->ty);
+		break;
+	case EDREF:
+		e->d = findecl(e->l, e->str);
+		if (e->d)
+			aply(e->l, &e->ty, e->d->ty);
+		else {
+			e->d = newdecl(e->l, DNONE, "!invalid");
+			goto nonety;
+		}
+		break;
+	case EINTEGER:
+		e->ty = ti32;
+		break;
+	case EFLOAT:
+		e->ty = tf32;
+		break;
+	case EBOOL:
+		e->ty = tbool;
+		break;
+	case ERUNE:
+		e->ty = trune;
+		break;
+	case ESTRING:
+		e->ty = astr;
+		break;
+	case ESTRUC:
+		e->ty = newtype(e->l, TSTRUC);
+		ascope(e->s);
+		e->ty->s = e->s;
+		break;
+	case EARRAY:
+		e->ty = newtype(e->l, TARRAY);
+		e->ty->asz = e->ls->ec;
+		alist(e->ls);
+		arg = e->ls->fst;
+		while (arg) {
+			aply(
+				arg->l,
+				&e->ty->ty,
+				arg->ty
+			);
+
+			arg = arg->next;
+		}
+		break;
+	default:
+		adeus("Unsupported expression, exprk = %d.", e->k);
+	}
+
+	return;
+
+nonety:
+	e->ty = nullptr;
+}
+
+static void alist(list *s) {
+	expr *e = s->fst;
+	while (e) {
+		aexpr(e);
+		e = e->next;
+	}
+}
+
+static void ascope(scope *s) {
+	inscope(s);
+	dbuk *b = s->fst;
+	while (b) {
+		adecl(b->d);
+		b = b->next;
+	}
+	outscope();
+}
+
+void analyse(unit *u) {
+	if (!analsisok)
+		adeus("May not analyse now.");
+
+	ascope(u->s);
+	analsisok = false;
+
+	if (scount != 1)
+		adeus("Scope count = %d.", scount);
+}

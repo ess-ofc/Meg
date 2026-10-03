@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <threads.h>
 /* IWYU pragma: end_exports */
 
 /* Defs. */
@@ -34,63 +35,119 @@ typedef const char *str;
 typedef u32 rune;
 typedef u08 error;
 
+#define LOCAL _Thread_local
+
+typedef struct loc loc;
+typedef struct scope scope;
+typedef struct list list;
+typedef struct unit unit;
+typedef struct type type;
+typedef struct hint hint;
+typedef struct decl decl;
+typedef struct expr expr;
+typedef struct stmt stmt;
+
 /* Source location. */
 
 struct loc {
-	int line, col;
+	u32 line, col;
+};
+
+/* The Unit. */
+
+struct unit {
+	str id;
+	scope *s;
+};
+
+/* Scopes. */
+
+typedef struct dbuk dbuk;
+struct dbuk {
+	u64 h;  // Hash.
+	size len;
+	struct dbuk *next;
+	decl *d;
+};
+
+/*
+ * Scopes contains declarations
+ * as a hash map. We need the
+ * order they were inserted
+ * when printing AST. `struct
+ * scope` isn't an AST node.
+ */
+struct scope {
+	/* Map. */
+	dbuk
+		*map,			 // Map.
+		*fst, *lst;	 // First and last bucket.
+	size maps;		 // Map size.
+	size dc;			 // Decl count.
+};
+
+/* Lists. */
+
+/*
+ * Lists contains a linked
+ * list of expressions and
+ * a pointer to the last
+ * expression.
+ */
+struct list {
+	expr *fst, *lst;
+	size ec;
 };
 
 /* Types. */
 
 enum typek : u08 {
 	TNONE,
-	TIDENT,
+	TINT,
+	TFLOAT,
+	TBOOL,
+	TRUNE,
 	TREF,
 	TFUNC,
 	TSTRUC,
 	TARRAY,
-	TSLICE
+	TTYPE
 };
-
-/* Qualifiers. */
-enum qual : u08 {
-	QNONE,
-	QCONST,
-	QMUT
-};
+typedef enum typek typek;
 
 struct type {
-	struct loc l;
-	union {
-		struct {
-			struct decl *d;
-			const char *id;
-		} ident;
+	typek k;
+	loc l;
+	size sz;
+	bool sign;
+	bool move;	// Type may not be copied.
 
-		struct {
-			struct type *ty;
-		} ref;
+	type *ty;  // Secondary type, may be null.
+	scope *s;  // Parameters or fields.
 
-		struct {
-			struct scope *s;
-			struct type *ty;
-		} func;
+	/* TARRAY */
+	i64 asz;			// -1 for slices.
+	expr *szexpr;	// Constexpr.
+};
 
-		struct {
-			struct scope *s;
-		} struc;
+/* Hints. */
 
-		struct {
-			struct expr *sz;
-			struct type *ty;
-		} array;
+enum hintk {
+	HNONE,
+	HEXPR,
+	HREF,
+	HFUNC,
+	HSTRUC,
+	HARRAY
+};
+typedef enum hintk hintk;
 
-		struct {
-			struct type *ty;
-		} slice;
-	} u;
-	enum qual q;
-	enum typek k;
+struct hint {
+	hintk k;
+	loc l;
+	hint *ty;  // Secondary types.
+	expr *e;	  // HEXPR or array size.
+	scope *s;  // Parameters or fields.
 };
 
 /* Declarations. */
@@ -99,69 +156,38 @@ enum declk : u08 {
 	DNONE,
 	DFUNC,
 	DOBJ,
-	DTYPE,  // Primitives.
-	DDEF,
-	DALIAS
+	DTYPE	 // Primitives.
 };
-
-/* Type category. */
-enum typec : u08 {
-	CNONE,
-	CINT,
-	CUINT,
-	CFLOAT,
-	CBOOL,
-	CRUNE
-};
+typedef enum declk declk;
 
 struct decl {
-	struct loc l;
+	declk k;
+	loc l;
 	str id;
-	union {
-		struct {
-			struct scope *s;
-			struct type *ty;
-		} func;
+	type *ty;  // After analysis.
+	hint *h;
 
-		struct {
-			struct expr *init;
-			struct type *ty;
-		} obj;
+	expr *e;
 
-		struct {
-			size size;
-			bool sign;
-			enum typec c;
-		} type;
-
-		struct {
-			struct scope *s;
-			struct type *ty;
-		} def;
-
-		struct {
-			struct type *ty;
-		} alias;
-	} u;
-	enum declk k;
+	/* DTYPE */
+	scope *s;  // Type scope.
 };
 
 /* Expressions. */
 
 enum exprk : u08 {
 	ENONE,
+
 	EADD,
 	ESUB,
 	EMUL,
 	EDIV,
 	EREM,
-
 	EAND,
 	EEOR,
-	EOR,
+	EBOR,
 	ELAND,
 	ELOR,
-	ENOT,
 	EEQL,
 	ENEQ,
 	EGTR,
@@ -173,62 +199,87 @@ enum exprk : u08 {
 	EREF,
 	ECALL,
 	ENEG,
+	ENOT,
 	EPLUS,
 	EMINUS,
+	EOPER,
 
 	EPAREN,
 	EDREF,
-	ELIT,
-	ESTR,
+	EINTEGER,
+	EFLOAT,
+	EBOOL,
+	ERUNE,
+	ESTRING,
 	ESTRUC,
 	EARRAY
 };
+typedef enum exprk exprk;
 
 struct expr {
-	struct loc l;
-	struct type *ty;
-	union {
-		struct {
-			struct expr *lhs;
-			struct expr *rhs;
-		} bin;
+	exprk k;
+	loc l;
+	expr *next;
+	type *ty;
 
-		struct {
-			struct expr *e;
-		} un;
+	/* Most nodes. */
+	expr *lhs;
+	expr *rhs;
+	str str;
+	decl *d;
 
-		struct {
-			struct expr *func;  // DREF;
-			struct expr *args;
-		} call;
+	/* ESTRING */
+	size n;
 
-		struct {
-			str id;
-			struct decl *d;
-		} dref;
+	/* ECALL, EARRAY */
+	list *ls;
 
-		struct {
-			uint64_t num;
-		} lit;
+	/* ESTRUC */
+	scope *s;
 
-		struct {
-			str s;
-		} str;
+	/* EOPER */
+	stmt *oper;
 
-		struct {
-			struct scope *s;
-		} struc;
+	/* EINTEGER, ERUNE, EBOOL */
+	u64 lint;
 
-		struct {
-			struct expr *list;
-		} array;
-	} y;
-	enum exprk k;
+	/* EFLOAT */
+	double flt;
 };
 
-/* Tokens. */
+/* Statements. */
 
-enum tok {
+enum stmtk {
+	SNONE,
+	SRESULT,
+	SSTACK,
+	SIF,
+	SFOR,
+	SBREAK,
+	SCONTINUE,
+	SEXPR
+};
+typedef enum stmtk stmtk;
+
+struct stmt {
+	stmtk k;
+	loc l;
+	stmt *next;
+
+	expr *e;
+	stmt *doblk;  //  if, for block.
+
+	/* SSTACK (local variable) */
+	str id;
+	type *ty;
+
+	/* SIF */
+	stmt *orel;	 // or, else block.
+};
+
+/* tok.c */
+
+enum tokk {
 	LNONE,
 
 	LEOF,
@@ -237,6 +288,7 @@ enum tok {
 	LID,
 
 	LDEF,
+	LALIAS,
 	LMUT,
 	LCONST,
 	LIF,
@@ -288,13 +340,52 @@ enum tok {
 
 	LEND
 };
+typedef enum tokk tokk;
 
-str tokname(enum tok);
+typedef struct tok tok;
+struct tok {
+	tokk k;
+	loc l;
+	u64 data;
+	str lit;
+};
+
+str tokname(tokk);
 
 /* main.c */
 
-extern str file;
-extern bool werror;
+extern LOCAL str file;
+
+extern str progname;
+extern bool	 // Flags.
+	fwerror,
+	fdump;
+
+/* type.c */
+
+type *newtype(loc l, typek k);
+bool tyeql(type *x, type *y);
+
+/* ast.c */
+
+unit *newunit(str id);
+hint *newhint(loc l, hintk k);
+decl *newdecl(loc l, declk k, str id);
+expr *newexpr(loc l, exprk k);
+stmt *newstmt(loc l, stmtk k);
+
+/* scope.c */
+
+scope *newscope();
+void declare(scope *s, decl *d);
+decl *getdecl(scope *s, str id);
+bool scopeql(scope *x, scope *y);
+
+/* list.c */
+
+list *newlist();
+void append(list *l, expr *e);
+bool listeql(list *x, list *y);
 
 /* diag.c */
 
@@ -303,10 +394,10 @@ void warn(str msg, ...);
 void note(str msg, ...);
 void info(str msg, ...);
 
-void lerro(struct loc l, str msg, ...);
-void lwarn(struct loc l, str msg, ...);
-void lnote(struct loc l, str msg, ...);
-void linfo(struct loc l, str msg, ...);
+void lerro(loc l, str msg, ...);
+void lwarn(loc l, str msg, ...);
+void lnote(loc l, str msg, ...);
+void linfo(loc l, str msg, ...);
 
 [[noreturn]]
 void adeus(str msg, ...);
@@ -317,11 +408,21 @@ u64 errcount();
 
 error lexinit();
 void lexdnit();
-enum tok lex();
-str getlit();
-uint64_t getdata();
+tok lex();
 str intern(str s, size n);
+
+/* parser.c */
+
+void parserinit();
+void parse(unit *u);
+
+/* analyser.c */
+
+void analyserinit();
+void analyse(unit *u);
 
 /* utis.c */
 
+void meminit();
+void memdnit();
 void *alloc(size n);
