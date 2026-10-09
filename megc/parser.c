@@ -7,6 +7,8 @@
 
 #include "meg.h"
 
+constexpr size TBUFSZ = 4;
+
 /* Parser state.
  *
  * I decided to use pointers
@@ -16,36 +18,34 @@
  * it.
  */
 LOCAL static struct {
-	tok tbuf[2],  // Token buffer.
-		*cur,		  // Ptr to the current tok in tbuf.
-		*nxt;		  // Ptr to the next tok in tbuf.
+	tok tbuf[TBUFSZ];	 // Token buffer.
 } s;
 
 /* Advances to the next token. */
 static void eat(u32 times) {
 	while (times--) {
-		*s.cur = lex();
-
-		/* Swap the tokens. */
-		tok *nxt = s.cur;
-		s.cur = s.nxt;
-		s.nxt = nxt;
+		memcpy(
+			s.tbuf,
+			&s.tbuf[1],
+			sizeof s.tbuf[0] * 3
+		);
+		s.tbuf[3] = lex();
 	}
 }
 
 static tokk cur() {
-	return s.cur->k;
+	return s.tbuf[0].k;
 }
 
 static tokk peek() {
-	return s.nxt->k;
+	return s.tbuf[1].k;
 }
 
 /*
  * Gets the current token.
  */
 static tok curt() {
-	return *s.cur;
+	return s.tbuf[0];
 }
 
 /*
@@ -73,16 +73,52 @@ again:
 }
 
 void parserinit() {
-	/* Setup tok pointers. */
-	s.cur = &s.tbuf[0];
-	s.nxt = &s.tbuf[1];
-
 	/* Initializes tbuf. */
-	eat(2);
+	eat(TBUFSZ);
 }
 
+static bool isdecl() {
+	switch (cur()) {
+	case LALIAS:
+	case LDEF:
+		return true;
+	case LID:
+		switch (peek()) {
+		case LLPAREN:
+			return (s.tbuf[2].k == LRPAREN ||
+						 s.tbuf[2].k == LID) &&
+				s.tbuf[3].k == LCOLON;
+		case LCOLON:
+			return true;
+		default:
+		}
+	/* fallthrough */
+	default:
+		return false;
+	}
+}
+
+static bool isstmt() {
+	switch (cur()) {
+	case LRESULT:
+	case LIF:
+	case LFOR:
+	case LDEFER:
+	case LHOLE:
+	case LCASE:
+		return true;
+	case LID:
+		if (peek() == LCOLON)
+			return true;
+	/* fallthrough */
+	default:
+		return false;
+	}
+}
+
+static scope *pscope(tokk ter);
 static list *plist(tokk ter);
-static scope *pscope(tokk term);
+static block *pblock(tokk ter);
 static hint *phint();
 static decl *pdecl();
 static expr *pexpr(u32 prec);
@@ -130,7 +166,7 @@ static hint *phint() {
 
 		if (
 			cur() == LRBRACKT ||
-			peek() == LCOLON
+			isdecl()
 		) {
 			/*
 			 * Structures, syntax:
@@ -150,8 +186,14 @@ static hint *phint() {
 			h->k = HARRAY;
 			if (!expect(LTILDE))
 				h->e = pexpr(0);
-			if (!expect(LRBRACKT))
+			if (!expect(LRBRACKT)) {
 				lerro(curt().l, "Expected ']'.");
+				while (!expect(LRBRACKT)) {
+					if (cur() == LEOF)
+						break;
+					eat(1);
+				}
+			}
 			h->ty = phint();
 			break;
 		}
@@ -248,7 +290,7 @@ inval:
 	return newdecl(t.l, DNONE, id);
 }
 
-static struct expr *pexpr(u32 prec) {
+static expr *pexpr(u32 prec) {
 	expr *l;
 
 	expect(LNONE);	 // Skips newlines.
@@ -339,13 +381,14 @@ unop:
 			lerro(t.l, "Expected ')'.");
 		break;
 	case LLBRACE:
+		eat(1);
 		e->k = EOPER;
-		adeus("Operations are not supported.");
+		e->b = pblock(LRBRACE);
 		break;
 	case LLBRACKT:
 		eat(1);
 		expect(LNONE);	 // Skips newlines.
-		if (peek() == LCOLON) {
+		if (isdecl()) {
 			e->k = ESTRUC;
 			e->s = pscope(LRBRACKT);
 			break;
@@ -490,76 +533,109 @@ binop:
 	goto led;
 }
 
-[[maybe_unused]]
 static stmt *pstmt() {
-	adeus("Statements are not done.");
-}
-
-static list *plist(tokk ter) {
+	stmt *s;
 	expr *e;
-	list *l = newlist();
-
-again:
 	tok t = curt();
-	if (t.k == ter) {
-		eat(1);
-		return l;
-	}
 
 	switch (t.k) {
-	case LNONE:
-		adeus("An LNONE.");
-	case LEOF:
-		lerro(t.l, "Unexpected EOF.");
-		return l;
-	case LCOMMA:
-		/*
-		 * Avoid things as:
-		 *   list := [
-		 *      10,
-		 *      , <- here, uncessary comma.
-		 *      20,
-		 *   ]
-		 */
-		lwarn(
-			t.l,
-			"Unecessary separator."
-		);
-		/* fallthrough */
-	case LEOL:
+	case LRESULT:
 		eat(1);
-		goto again;
-	default:
-		e = pexpr(0);
-		append(l, e);
+		s = newstmt(t.l, SRESULT);
+		s->e = pexpr(0);
+		break;
+	case LID:
+		if (peek() != LCOLON)
+			goto exprs;
 
-		if (expect(LEOL) || expect(LCOMMA))
-			goto again;
-		if (expect(ter))
-			return l;
-
-		lerro(
-			t.l,
-			"Expected a separator or '%s'.",
-			tokname(ter),
-			tokname(cur()),
-			curt().lit
-		);
-		/* Attempts to continue. */
-		if (e->k != ENONE)
-			goto again;
-
-		/* The state is unknown here. */
-		for (;;) {
-			if (expect(LEOL) || expect(LCOMMA))
-				goto again;
-			else if (cur() == ter)
-				return l;
-
+		/*
+		 * Although stack statements
+		 * looks like a object declaration,
+		 * they are not. Stack stmts may
+		 * be shadowed in the operation.
+		 */
+		s = newstmt(t.l, SSTACK);
+		s->id = t.lit;
+		eat(2);	// eats LID LCOLON
+		s->h = phint();
+		if (cur() == LASSIGN) {
 			eat(1);
+			s->e = pexpr(0);
 		}
-		goto again;
+		break;
+	case LIF:
+		eat(1);
+		s = newstmt(t.l, SIF);
+		s->e = pexpr(0);
+		if (!expect(LLBRACE)) {
+			lerro(curt().l, "Expected '{'.");
+			break;
+		}
+		s->blk = pblock(LRBRACE);
+		if (cur() == LELSE) {
+			eat(1);
+			if (!expect(LLBRACE)) {
+				lerro(curt().l, "Expected '{'.");
+				break;
+			}
+			s->els = pblock(LRBRACE);
+		}
+		break;
+	case LFOR:
+		eat(1);
+		s = newstmt(t.l, SFOR);
+		expect(LNONE);	 // Skips newlines.
+
+		/* First field, initialization. */
+		if (!expect(LCOMMA) && isstmt()) {
+			s->init = pstmt();
+			if (!expect(LCOMMA))
+				goto forblk;
+		}
+
+		/* Second field, post-instruction. */
+		if (isstmt()) {
+			s->post = pstmt();
+			if (!expect(LCOMMA))
+				goto forblk;
+		}
+
+		/* Third field, condition. */
+		expect(LNONE);	 // Skips newlines.
+		if (cur() != LLBRACE)
+			s->e = pexpr(0);
+
+forblk:
+		if (!expect(LLBRACE)) {
+			lerro(curt().l, "Expected '{'.");
+			break;
+		}
+		s->blk = pblock(LRBRACE);
+		break;
+	case LBREAK:
+		s = newstmt(t.l, SBREAK);
+		break;
+	case LCONTINUE:
+		s = newstmt(t.l, SCONTINUE);
+		break;
+	default:
+exprs:
+		e = pexpr(0);
+		switch (cur()) {
+		case LASSIGN:
+			eat(1);
+			s = newstmt(curt().l, SASSIGN);
+			s->lhs = e;
+			s->e = pexpr(0);
+			break;
+		default:
+			s = newstmt(curt().l, SEXPR);
+			s->e = e;
+			break;
+		}
 	}
+
+	return s;
 }
 
 static scope *pscope(tokk ter) {
@@ -598,20 +674,127 @@ again:
 			return s;
 
 		lerro(
-			t.l,
+			curt().l,
 			"Expected a separator or '%s'.",
 			tokname(ter)
 		);
-		/* Attempts to continue. */
-		if (d->k != DNONE)
-			goto again;
 
 		/* The state is unknown here. */
 		for (;;) {
-			if (expect(LEOL) || expect(LCOMMA))
-				goto again;
-			else if (cur() == ter)
+			if (cur() == LEOF || expect(ter))
 				return s;
+
+			eat(1);
+		}
+		goto again;
+	}
+}
+
+static list *plist(tokk ter) {
+	expr *e;
+	list *l = newlist();
+
+again:
+	tok t = curt();
+	if (t.k == ter) {
+		eat(1);
+		return l;
+	}
+
+	switch (t.k) {
+	case LNONE:
+		adeus("An LNONE.");
+	case LEOF:
+		lerro(t.l, "Unexpected EOF.");
+		return l;
+	case LCOMMA:
+		/*
+		 * Avoid this:
+		 *   list := [
+		 *      10,
+		 *      , <- here, uncessary comma.
+		 *      20,
+		 *   ]
+		 */
+		lwarn(
+			t.l,
+			"Unecessary separator."
+		);
+		/* fallthrough */
+	case LEOL:
+		eat(1);
+		goto again;
+	default:
+		e = pexpr(0);
+		append(l, e);
+
+		if (expect(LEOL) || expect(LCOMMA))
+			goto again;
+		if (expect(ter))
+			return l;
+
+		lerro(
+			curt().l,
+			"Expected a separator or '%s'.",
+			tokname(ter)
+		);
+
+		/* The state is unknown here. */
+		for (;;) {
+			if (cur() == LEOF || expect(ter))
+				return l;
+
+			eat(1);
+		}
+		goto again;
+	}
+}
+
+static block *pblock(tokk ter) {
+	stmt *s;
+	block *b = newblock();
+
+again:
+	tok t = curt();
+	if (t.k == ter) {
+		eat(1);
+		return b;
+	}
+
+	switch (t.k) {
+	case LNONE:
+		adeus("An LNONE.");
+	case LEOF:
+		lerro(t.l, "Unexpected EOF.");
+		return b;
+	case LCOMMA:
+		lwarn(
+			t.l,
+			"Unecessary separator."
+		);
+		/* fallthrough */
+	case LEOL:
+		eat(1);
+		goto again;
+	default:
+		s = pstmt();
+		join(b, s);
+
+		if (expect(LEOL) || expect(LCOMMA))
+			goto again;
+		if (expect(ter))
+			return b;
+
+		lerro(
+			curt().l,
+			"Expected a separator or '%s'.",
+			tokname(ter)
+		);
+
+		/* The state is unknown here. */
+		for (;;) {
+			if (cur() == LEOF || expect(ter))
+				return b;
 
 			eat(1);
 		}

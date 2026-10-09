@@ -30,6 +30,8 @@ typedef uint8_t u08;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
+typedef float f32;
+typedef double f64;
 typedef size_t size;
 typedef const char *str;
 typedef u32 rune;
@@ -40,6 +42,7 @@ typedef u08 error;
 typedef struct loc loc;
 typedef struct scope scope;
 typedef struct list list;
+typedef struct block block;
 typedef struct unit unit;
 typedef struct type type;
 typedef struct hint hint;
@@ -97,6 +100,20 @@ struct scope {
 struct list {
 	expr *fst, *lst;
 	size ec;
+};
+
+/* Blocks. */
+
+/*
+ * Blocks contains a linked
+ * list of statements and
+ * a pointer to the last
+ * statement.
+ */
+struct block {
+	stmt *fst, *lst;
+	size sc;
+	scope *s;  // Used by the analyser.
 };
 
 /* Types. */
@@ -166,6 +183,7 @@ struct decl {
 	str id;
 	type *ty;  // After analysis.
 	hint *h;
+	void *p;	 // Code generation data.
 
 	expr *e;
 
@@ -184,8 +202,8 @@ enum exprk : u08 {
 	EDIV,
 	EREM,
 	EAND,
-	EEOR,
 	EBOR,
+	EEOR,
 	ELAND,
 	ELOR,
 	EEQL,
@@ -238,7 +256,7 @@ struct expr {
 	scope *s;
 
 	/* EOPER */
-	stmt *oper;
+	block *b;
 
 	/* EINTEGER, ERUNE, EBOOL */
 	u64 lint;
@@ -255,8 +273,12 @@ enum stmtk {
 	SSTACK,
 	SIF,
 	SFOR,
+	SCASE,
+	SHOLE,
 	SBREAK,
 	SCONTINUE,
+	SFALL,
+	SASSIGN,
 	SEXPR
 };
 typedef enum stmtk stmtk;
@@ -267,17 +289,22 @@ struct stmt {
 	stmt *next;
 
 	expr *e;
-	stmt *doblk;  //  if, for block.
+	block *blk;	 // SIF, SFOR block.
+	stmt *init;	 // SIF, SFOR initialization.
+
+	/* SFOR */
+	stmt *post;	 // Post-instruction stmt.
 
 	/* SSTACK (local variable) */
 	str id;
-	type *ty;
+	hint *h;
 
 	/* SIF */
-	stmt *orel;	 // or, else block.
-};
+	block *els;
 
-/* tok.c */
+	/* SASSIGN */
+	expr *lhs;
+};
 
 enum tokk {
 	LNONE,
@@ -292,9 +319,11 @@ enum tokk {
 	LMUT,
 	LCONST,
 	LIF,
-	LOR,
 	LELSE,
 	LDEFER,
+	LHOLE,
+	LCASE,
+	LOF,
 	LFOR,
 	LBREAK,
 	LCONTINUE,
@@ -350,8 +379,6 @@ struct tok {
 	str lit;
 };
 
-str tokname(tokk);
-
 /* main.c */
 
 extern LOCAL str file;
@@ -361,11 +388,6 @@ extern bool	 // Flags.
 	fwerror,
 	fdump;
 
-/* type.c */
-
-type *newtype(loc l, typek k);
-bool tyeql(type *x, type *y);
-
 /* ast.c */
 
 unit *newunit(str id);
@@ -373,19 +395,6 @@ hint *newhint(loc l, hintk k);
 decl *newdecl(loc l, declk k, str id);
 expr *newexpr(loc l, exprk k);
 stmt *newstmt(loc l, stmtk k);
-
-/* scope.c */
-
-scope *newscope();
-void declare(scope *s, decl *d);
-decl *getdecl(scope *s, str id);
-bool scopeql(scope *x, scope *y);
-
-/* list.c */
-
-list *newlist();
-void append(list *l, expr *e);
-bool listeql(list *x, list *y);
 
 /* diag.c */
 
@@ -426,3 +435,15 @@ void analyse(unit *u);
 void meminit();
 void memdnit();
 void *alloc(size n);
+scope *newscope();
+decl *getdecl(scope *s, str id);
+void declare(scope *s, decl *d);
+bool scopeql(scope *x, scope *y);
+list *newlist();
+void append(list *l, expr *e);
+bool listeql(list *x, list *y);
+type *newtype(loc l, typek k);
+bool tyeql(type *x, type *y);
+block *newblock();
+void join(block *b, stmt *s);
+str tokname(tokk);

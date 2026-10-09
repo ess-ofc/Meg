@@ -34,12 +34,11 @@ int run(void *args) {
 	u = newunit(file);
 
 	parse(u);
-
 	analyse(u);
 
 	lexdnit();
 	memdnit();
-	return 0;
+	return errcount();
 }
 
 int main(int c, char **v) {
@@ -56,7 +55,7 @@ int main(int c, char **v) {
 			switch (*arg) {
 			case 'w':
 				arg++;
-				if (strcmp(arg, "error"))
+				if (!strcmp(arg, "error"))
 					fwerror = true;
 				else {
 					break;

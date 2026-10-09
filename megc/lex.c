@@ -366,7 +366,7 @@ static tok getkw(loc l, str id, size n) {
 	} tab[][maxk] = {
 		[2] = {
 			{"if", LIF},
-			{"or", LOR},
+			{"of", LOF},
 		},
 		[3] = {
 			{"def", LDEF},
@@ -375,6 +375,8 @@ static tok getkw(loc l, str id, size n) {
 		},
 		[4] = {
 			{"else", LELSE},
+			{"case", LCASE},
+			{"hole", LHOLE},
 		},
 		[5] = {
 			{"alias", LALIAS},
