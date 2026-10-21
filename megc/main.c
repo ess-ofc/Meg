@@ -8,6 +8,7 @@
 #include "meg.h"
 
 LOCAL str file;
+LOCAL unit *u;
 
 str progname = "megc";
 bool fwerror;
@@ -18,44 +19,44 @@ struct info {
 };
 
 /* Compilation routine. */
-int run(void *args) {
+int
+run(void *args) {
 	struct info *i = args;
 	file = i->file;
 
-	meminit();
-	if (lexinit()) {
-		memdnit();
+	if(lexinit())
 		return 1;
-	}
+	meminit();
 	parserinit();
-	analyserinit();
+	checkinit();
 
-	unit *u;
-	u = newunit(file);
-
-	parse(u);
-	analyse(u);
+	newunit(file);
+	parse();
+	check();
 
 	lexdnit();
 	memdnit();
-	return errcount();
+	if(errcount())
+		return 1;
+	return 0;
 }
 
-int main(int c, char **v) {
+int
+main(int c, char **v) {
 	setlocale(LC_ALL, "en-US.UTF-8");
 
 	str file = nullptr;
 	progname = v[0];
 
-	for (int i = 1; i < c; i++) {
+	for(int i = 1; i < c; i++) {
 		str arg = v[i];
 
-		if (*arg == '-') {
+		if(*arg == '-') {
 			arg++;
-			switch (*arg) {
+			switch(*arg) {
 			case 'w':
 				arg++;
-				if (!strcmp(arg, "error"))
+				if(!strcmp(arg, "error"))
 					fwerror = true;
 				else {
 					break;
@@ -70,7 +71,7 @@ int main(int c, char **v) {
 			continue;
 		}
 
-		if (file) {
+		if(file) {
 			erro("One file at once!");
 			continue;
 		}
@@ -78,7 +79,7 @@ int main(int c, char **v) {
 		file = arg;
 	}
 
-	if (errcount())
+	if(errcount())
 		return 1;
 
 	struct info args = {

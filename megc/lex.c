@@ -27,8 +27,9 @@ static struct {
 	size bukc;
 } pool;
 
-static void poolck() {
-	if ((float) pool.bukc / pool.maps < 0.80)
+static void
+poolck() {
+	if((float) pool.bukc / pool.maps < 0.80)
 		return;
 
 	size olds = pool.maps;
@@ -40,30 +41,31 @@ static void poolck() {
 		sizeof *pool.map
 	);
 
-	for (size i = 0; i < olds; i++)
-		if (oldm[i].s)
+	for(size i = 0; i < olds; i++)
+		if(oldm[i].s)
 			intern(oldm[i].s, oldm[i].len);
 
 	free(oldm);
 }
 
-str intern(str s, size n) {
+str
+intern(str s, size n) {
 	poolck();
 
 	u64 hash = XXH3_64bits(s, n);
 	size pos = hash & (pool.maps - 1);
 
-	for (;;) {
+	for(;;) {
 		auto b = &pool.map[pos];
 
-		if (
+		if(
 			b->hash == hash &&
 			b->len == n
 		) {
 			return b->s;
 		}
 
-		if (b->s == nullptr) {
+		if(b->s == nullptr) {
 			char *buf = alloc(n + 1);
 			memcpy(buf, s, n);
 			buf[n] = 0;
@@ -79,48 +81,50 @@ str intern(str s, size n) {
 	}
 }
 
-static size runesz(u08 byte) {
-	if ((byte & 0x80) == 0x00)
+static size
+runesz(u08 byte) {
+	if((byte & 0x80) == 0x00)
 		return 1;
-	if ((byte & 0xe0) == 0xc0)
+	if((byte & 0xe0) == 0xc0)
 		return 2;
-	if ((byte & 0xf0) == 0xe0)
+	if((byte & 0xf0) == 0xe0)
 		return 3;
-	if ((byte & 0xf8) == 0xf0)
+	if((byte & 0xf8) == 0xf0)
 		return 4;
 
 	return 0;
 }
 
-static size utf8tor(size roff, rune *r) {
+static size
+utf8tor(size roff, rune *r) {
 	/* In case error, return 1 to avoid loops. */
 	loc l = {line, col};
 
-	if (roff >= busz) {
+	if(roff >= busz) {
 		/* Not an error, it's just EOF. */
 		ch = 0;
 		return 0;
 	}
 
 	size w = runesz(buf[roff]);
-	if (w == 0) {
+	if(w == 0) {
 		lerro(l, "Invalid unicode character.");
 		return 1;
 	}
 
-	if (w > busz - roff) {
+	if(w > busz - roff) {
 		lerro(l, "Invalid rune size.");
 		return 1;
 	}
 
-	if (roff >= busz) {
+	if(roff >= busz) {
 		*r = 0;
 		return 1;
 	}
 
 	*r = 0;
 	u08 *p = &buf[roff];
-	switch (w) {
+	switch(w) {
 	case 1:
 		*r = *p;
 		break;
@@ -144,9 +148,10 @@ static size utf8tor(size roff, rune *r) {
 	return w;
 }
 
-static void next() {
+static void
+next() {
 	off += utf8tor(off, &ch);
-	if (ch == '\n') {
+	if(ch == '\n') {
 		line++;
 		col = 0;
 		return;
@@ -154,30 +159,33 @@ static void next() {
 	col++;
 }
 
-static void prev() {
-	if (ch == '\n' || col < 1)
+static void
+prev() {
+	if(ch == '\n' || col < 1)
 		adeus("Attempted to go one line back.");
 
-	while (off)
-		if (runesz(buf[--off]) != 0)
+	while(off)
+		if(runesz(buf[--off]) != 0)
 			break;
 
-	if (runesz(buf[off]) == 0)
+	if(runesz(buf[off]) == 0)
 		adeus("Is '%s' a valid UTF-8 file?", file);
 
 	utf8tor(off, &ch);
 	col--;
 }
 
-static rune peek() {
+static rune
+peek() {
 	rune r = 0;
 	utf8tor(off, &r);
 	return r;
 }
 
-error lexinit() {
+error
+lexinit() {
 	FILE *f = fopen(file, "r");
-	if (!f) {
+	if(!f) {
 		erro(
 			"Couldn't open the file"
 			"'%s'; system: '%s'.",
@@ -189,13 +197,13 @@ error lexinit() {
 
 	fseek(f, 0, SEEK_END);
 	busz = ftell(f);
-	if (busz == 0) {
+	if(busz == 0) {
 		erro("'%s' is empty.", file);
 		fclose(f);
 		return 1;
 	}
 
-	buf = alloc(busz + 1);
+	buf = malloc(busz + 1);
 	fseek(f, 0, SEEK_SET);
 	fread(buf, busz, 1, f);
 	buf[busz] = '\0';
@@ -213,17 +221,20 @@ error lexinit() {
 	return 0;
 }
 
-void lexdnit() {
+void
+lexdnit() {
+	free(buf);
 	free(pool.map);
 	pool.map = nullptr;
 	pool.bukc = 0;
 	pool.maps = 0;
 }
 
-static rune getscape() {
+static rune
+getscape() {
 	loc l = {line, col};
 
-	switch (ch) {
+	switch(ch) {
 	case '\0':
 	case '\n':
 		lerro(l, "Incomplete scape.");
@@ -272,7 +283,8 @@ static rune getscape() {
 	}
 }
 
-static tok getrune() {
+static tok
+getrune() {
 	tok ret = {
 		.k = LRUNE,
 		.l = {line, col},
@@ -281,7 +293,7 @@ static tok getrune() {
 	assert(ch == '\'');
 	next();
 
-	switch (ch) {
+	switch(ch) {
 	case '\0':
 	case '\n':
 		lerro(ret.l, "Incomplete rune literal.");
@@ -295,10 +307,10 @@ static tok getrune() {
 		next();
 	}
 
-	if (ch != '\'') {
-		while (ch && ch != '\n' && ch != '\'')
+	if(ch != '\'') {
+		while(ch && ch != '\n' && ch != '\'')
 			next();
-		if (ch != '\'')
+		if(ch != '\'')
 			lerro(ret.l, "Unterminated rune literal.");
 		else
 			lerro(ret.l, "Multicharacter rune literal.");
@@ -309,7 +321,8 @@ static tok getrune() {
 	return ret;
 }
 
-static tok getstr() {
+static tok
+getstr() {
 	tok ret = {
 		.k = LSTRING,
 		.l = {line, col}
@@ -322,8 +335,8 @@ static tok getstr() {
 
 	size roff = off;
 	next();
-	for (;;) {
-		switch (ch) {
+	for(;;) {
+		switch(ch) {
 		case '\0':
 		case '\n':
 			lerro(ret.l, "Unterminated string literal.");
@@ -337,7 +350,7 @@ static tok getstr() {
 			s[len++] = getscape();
 			continue;
 		default:
-			while (roff < off)
+			while(roff < off)
 				s[len++] = buf[roff++];
 			next();
 			continue;
@@ -350,7 +363,8 @@ end:
 	return ret;
 }
 
-static tok getkw(loc l, str id, size n) {
+static tok
+getkw(loc l, str id, size n) {
 	tok ret = {
 		.k = LID,
 		.l = l,
@@ -358,7 +372,7 @@ static tok getkw(loc l, str id, size n) {
 		.lit = id
 	};
 
-	constexpr size maxk = 4;
+	constexpr size maxk = 16;
 
 	const struct {
 		str id;
@@ -370,19 +384,23 @@ static tok getkw(loc l, str id, size n) {
 		},
 		[3] = {
 			{"def", LDEF},
-			{"mut", LMUT},
 			{"for", LFOR},
+			{"use", LUSE},
 		},
 		[4] = {
+			{"anex", LANEX},
 			{"else", LELSE},
 			{"case", LCASE},
+			{"enum", LENUM},
+			{"goto", LGOTO},
 			{"hole", LHOLE},
+			{"fall", LFALL},
 		},
 		[5] = {
-			{"alias", LALIAS},
 			{"const", LCONST},
 			{"defer", LDEFER},
 			{"break", LBREAK},
+			{"union", LUNION},
 		},
 		[8] = {
 			{"continue", LCONTINUE},
@@ -390,15 +408,15 @@ static tok getkw(loc l, str id, size n) {
 	};
 
 	size ts = sizeof tab / sizeof tab[0];
-	if (n >= ts)
+	if(n >= ts)
 		return ret;
 
 	auto kg = tab[n];
-	for (size i = 0; i < maxk; i++) {
-		if (!kg[i].id)
+	for(size i = 0; i < maxk; i++) {
+		if(!kg[i].id)
 			break;
 
-		if (!memcmp(kg[i].id, id, n)) {
+		if(!memcmp(kg[i].id, id, n)) {
 			ret.k = kg[i].t;
 			break;
 		}
@@ -407,7 +425,8 @@ static tok getkw(loc l, str id, size n) {
 	return ret;
 }
 
-static tok getid() {
+static tok
+getid() {
 	loc l = {line, col};
 
 	assert(isridstart(ch));
@@ -418,7 +437,7 @@ static tok getid() {
 
 	/* Get the raw ID, from buf. */
 	size eoff;	// End offset.
-	while (isridcontinue(ch)) {
+	while(isridcontinue(ch)) {
 		eoff = off;
 		next();
 	}
@@ -431,7 +450,8 @@ static tok getid() {
 	);
 }
 
-static tok getnum() {
+static tok
+getnum() {
 	assert(isrdigit(ch));
 
 	tok ret = {
@@ -446,8 +466,8 @@ static tok getnum() {
 
 	i32 base = 10;
 	str bname = "decimal";
-	if (ch == '0') {
-		switch (peek()) {
+	if(ch == '0') {
+		switch(peek()) {
 		case 'x':
 			base = 16;
 			bname = "hexadecimal";
@@ -472,12 +492,12 @@ analyze:
 	loc rl;
 	i32 val;
 
-	for (;;) {
+	for(;;) {
 		rl = ret.l;
 
 		val = getdigitval(ch);
-		if (val != -1) {
-			if (val >= base) {
+		if(val != -1) {
+			if(val >= base) {
 				lerro(rl, "Invalid digit in %s literal.", bname);
 				break;
 			}
@@ -486,7 +506,7 @@ analyze:
 			goto next;
 		}
 
-		switch (ch) {
+		switch(ch) {
 		case 'f':
 		case 'a':
 		case 'b':
@@ -494,30 +514,30 @@ analyze:
 		case 'd':
 		case 'e':
 			val = ch - 'a' + 10;
-			if (val >= 16 || base != 16)
+			if(val >= 16 || base != 16)
 				lerro(rl, "Invalid digit in %s literal.", bname);
 
 			buf[len++] = ch;
 			break;
 		case '.':
-			if (f || base != 10)
+			if(f || base != 10)
 				lerro(rl, "Unexpected dot.");
 
 			f = true;
 			buf[len++] = ch;
 			/* fallthrough. */
-		case ';':
-			if (issep)
+		case '_':
+			if(issep)
 				lwarn(rl, "Consecutive separators.");
 
 			issep = true;
 			next();
 			continue;
 		case 'E':
-			if (base != 10)
+			if(base != 10)
 				lerro(rl, "Unexpected E-notation.");
 
-			if (issep)
+			if(issep)
 				lwarn(rl, "Redundant separators.");
 
 			buf[len++] = ch;
@@ -539,20 +559,20 @@ casee:
 	rl.line = line;
 	rl.col = col;
 
-	if (ch == '+' || ch == '-') {
+	if(ch == '+' || ch == '-') {
 		buf[len++] = ch;
 		next();
 	}
 
-	if (!isrdigit(ch)) {
+	if(!isrdigit(ch)) {
 		lerro(rl, "Empty exponent.");
 		goto end;
 	}
 
-	for (;;) {
+	for(;;) {
 		rl.col = col;
 
-		if (isrdigit(ch)) {
+		if(isrdigit(ch)) {
 			val = getdigitval(ch);
 			buf[len++] = '0' + val;
 
@@ -561,8 +581,8 @@ casee:
 			continue;
 		}
 
-		if (ch == ';') {
-			if (issep)
+		if(ch == '_') {
+			if(issep)
 				lerro(rl, "Consecutive separators.");
 
 			issep = true;
@@ -574,39 +594,40 @@ casee:
 	}
 
 end:
-	if (issep)
+	if(issep)
 		lerro(rl, "Unnecessary separator.");
-	if (f)
+	if(f)
 		ret.k = LFLOAT;
 	ret.lit = intern(buf, len);
 	ret.data = base;
 	return ret;
 }
 
-tok lex() {
+tok
+lex() {
 	/* Skips every space. */
-	while (isrspace(ch))
+	while(isrspace(ch))
 		next();
 
 	tok ret = {
 		.l = {line, col}
 	};
 
-	if (ch == '\n') {
+	if(ch == '\n') {
 		next();
 		ret.k = LEOL;
 		return ret;
 	}
 
 	tokk k = LNONE;
-	switch (ch) {
+	switch(ch) {
 	case '\0':
 		k = LEOF;
 		break;
 	case '\\':
 		next();
-		while (ch != '\\') {
-			if (ch == '\0') {
+		while(ch != '\\') {
+			if(ch == '\0') {
 				lerro(ret.l, "Unterminated comment.");
 				break;
 			}
@@ -641,7 +662,7 @@ tok lex() {
 	case '&':
 		next();
 		k = LAND;
-		if (ch == '&') {
+		if(ch == '&') {
 			next();
 			k = LLAND;
 			break;
@@ -650,7 +671,7 @@ tok lex() {
 	case '|':
 		next();
 		k = LBOR;
-		if (ch == '|') {
+		if(ch == '|') {
 			next();
 			k = LLOR;
 			break;
@@ -662,8 +683,8 @@ tok lex() {
 		break;
 	case '!':
 		next();
-		k = LNEG;
-		if (ch == '=') {
+		k = LNOT;
+		if(ch == '=') {
 			next();
 			k = LNEQ;
 			break;
@@ -672,7 +693,7 @@ tok lex() {
 	case '=':
 		next();
 		k = LASSIGN;
-		switch (ch) {
+		switch(ch) {
 		case '=':
 			next();
 			k = LEQL;
@@ -686,7 +707,7 @@ tok lex() {
 	case '>':
 		next();
 		k = LGTR;
-		if (ch == '=') {
+		if(ch == '=') {
 			next();
 			k = LGEQ;
 			break;
@@ -695,7 +716,7 @@ tok lex() {
 	case '<':
 		next();
 		k = LLSS;
-		if (ch == '=') {
+		if(ch == '=') {
 			next();
 			k = LLEQ;
 			break;
@@ -741,18 +762,15 @@ tok lex() {
 		next();
 		k = LTILDE;
 		break;
-	case '$':
-		next();
-		k = LDOLLAR;
-		break;
 	default:
-		if (isridstart(ch))
+		if(isridstart(ch))
 			return getid();
 
-		if (isrdigit(ch))
+		if(isrdigit(ch))
 			return getnum();
 
 		lerro(ret.l, "Unknown character U+%X.", ch);
+		next();
 		ret.k = LNONE;
 	}
 

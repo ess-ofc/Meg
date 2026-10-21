@@ -2,7 +2,7 @@
 
 struct := [
    value := 10
-   alias int: i32
+   def int: i32
 ]
 
 true: bool
@@ -107,3 +107,35 @@ thevariable6: []
 thevariable7: [10]i32 \ Arrays. \
 thevariable8: [~]i32
 
+_start() := {
+   meg.print("hello, world!")
+   str := meg.newstr("hello!")
+   defer del(str)
+
+   if 10 > 2 {
+      call()
+   } else {
+      doThis()
+      for i := 0, i++, i < 0 {
+         execute(i)
+         hole {
+            x := 10
+         }
+
+         for, i++, i < 10 {
+            case {
+            of 0;
+               create()
+            of 1, 2, 3, 4;
+               four()
+            of 5 ~ 10;
+               toten()
+               fall
+            else;
+               nothin()
+            }
+         }
+      }
+   }
+   => []
+}

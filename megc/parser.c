@@ -22,8 +22,9 @@ LOCAL static struct {
 } s;
 
 /* Advances to the next token. */
-static void eat(u32 times) {
-	while (times--) {
+static void
+eat(u32 times) {
+	while(times--) {
 		memcpy(
 			s.tbuf,
 			&s.tbuf[1],
@@ -33,18 +34,21 @@ static void eat(u32 times) {
 	}
 }
 
-static tokk cur() {
+static tokk
+cur() {
 	return s.tbuf[0].k;
 }
 
-static tokk peek() {
+static tokk
+peek() {
 	return s.tbuf[1].k;
 }
 
 /*
  * Gets the current token.
  */
-static tok curt() {
+static tok
+curt() {
 	return s.tbuf[0];
 }
 
@@ -56,12 +60,13 @@ static tok curt() {
  * every LEOL (end-of-line) token
  * if it differs from t.
  */
-static bool expect(tokk t) {
+static bool
+expect(tokk t) {
 again:
 	tokk c = cur();
 
-	if (c != t) {
-		if (c == LEOL) {
+	if(c != t) {
+		if(c == LEOL) {
 			eat(1);
 			goto again;
 		}
@@ -72,18 +77,19 @@ again:
 	return true;
 }
 
-void parserinit() {
+void
+parserinit() {
 	/* Initializes tbuf. */
 	eat(TBUFSZ);
 }
 
-static bool isdecl() {
-	switch (cur()) {
-	case LALIAS:
+static bool
+isdecl() {
+	switch(cur()) {
 	case LDEF:
 		return true;
 	case LID:
-		switch (peek()) {
+		switch(peek()) {
 		case LLPAREN:
 			return (s.tbuf[2].k == LRPAREN ||
 						 s.tbuf[2].k == LID) &&
@@ -98,8 +104,9 @@ static bool isdecl() {
 	}
 }
 
-static bool isstmt() {
-	switch (cur()) {
+static bool
+isstmt() {
+	switch(cur()) {
 	case LRESULT:
 	case LIF:
 	case LFOR:
@@ -108,7 +115,7 @@ static bool isstmt() {
 	case LCASE:
 		return true;
 	case LID:
-		if (peek() == LCOLON)
+		if(peek() == LCOLON)
 			return true;
 	/* fallthrough */
 	default:
@@ -119,16 +126,17 @@ static bool isstmt() {
 static scope *pscope(tokk ter);
 static list *plist(tokk ter);
 static block *pblock(tokk ter);
-static hint *phint();
+static type *ptype();
 static decl *pdecl();
 static expr *pexpr(u32 prec);
 static stmt *pstmt();
 
-static hint *phint() {
+static type *
+ptype() {
 	tok t = curt();
-	hint *h = newhint(t.l, HNONE);
+	type *h = newtype(TNONE);
 
-	switch (t.k) {
+	switch(t.k) {
 	case LID:
 		/*
 		 * Type expressions, syntax:
@@ -138,7 +146,7 @@ static hint *phint() {
 		 * result in a EDREF to
 		 * DTYPE declaration.
 		 */
-		h->k = HEXPR;
+		h->k = TEXPR;
 		h->e = pexpr(0);
 		break;
 	case LAND:
@@ -147,8 +155,8 @@ static hint *phint() {
 		 *   & <hint>
 		 */
 		eat(1);
-		h->k = HREF;
-		h->ty = phint();
+		h->k = TREF;
+		h->ty = ptype();
 		break;
 	case LLPAREN:
 		/*
@@ -156,15 +164,27 @@ static hint *phint() {
 		 *   (<scope>) <hint>
 		 */
 		eat(1);
-		h->k = HFUNC;
+		h->k = TFUNC;
 		h->s = pscope(LRPAREN);
-		h->ty = phint();
+		h->ty = ptype();
+		break;
+	case LUNION:
+		eat(1);
+		h->k = TUNION;
+		if(!expect(LLBRACKT)) {
+			lerro(t.l, "Expcted '['.");
+			h->s = newscope();
+			break;
+		}
+		h->s = pscope(LRBRACKT);
+		if(h->s->dc == 0)
+			lerro(t.l, "Empty union.");
 		break;
 	case LLBRACKT:
 		eat(1);
 		expect(LNONE);	 // Skips any LEOL.
 
-		if (
+		if(
 			cur() == LRBRACKT ||
 			isdecl()
 		) {
@@ -172,29 +192,35 @@ static hint *phint() {
 			 * Structures, syntax:
 			 *   [<scope>]
 			 */
-			h->k = HSTRUC;
+			h->k = TSTRUC;
 			h->s = pscope(LRBRACKT);
+			break;
+		} else if(cur() == LTILDE) {
+
+			/*
+			 * Slices, syntax:
+			 *   [~] <hint>
+			 */
+			h->k = TSLICE;
+			eat(1);
+			if(!expect(LRBRACKT)) {
+				lerro(curt().l, "Expected ']'.");
+				break;
+			}
+			h->ty = ptype();
 			break;
 		} else {
 			/*
 			 * Arrays, syntax:
-			 * 1, slice.
-			 *   [~] <hint>
-			 * 2, sized array.
-			 *   [<constexpr>] <hint>
+			 *   [<expr>] <hint>
 			 */
-			h->k = HARRAY;
-			if (!expect(LTILDE))
-				h->e = pexpr(0);
-			if (!expect(LRBRACKT)) {
+			h->k = TARRAY;
+			h->e = pexpr(0);
+			if(!expect(LRBRACKT)) {
 				lerro(curt().l, "Expected ']'.");
-				while (!expect(LRBRACKT)) {
-					if (cur() == LEOF)
-						break;
-					eat(1);
-				}
+				break;
 			}
-			h->ty = phint();
+			h->ty = ptype();
 			break;
 		}
 	default:
@@ -203,16 +229,17 @@ static hint *phint() {
 	return h;
 }
 
-static decl *pdecl() {
+static decl *
+pdecl() {
 	decl *d;
 	str id;
 
 	tok t = curt();
-	switch (cur()) {
+	switch(cur()) {
 	case LID:
 		id = t.lit;
 
-		switch (peek()) {
+		switch(peek()) {
 		case LCOLON:
 			/*
 			 * Objects, syntax:
@@ -223,8 +250,8 @@ static decl *pdecl() {
 			 */
 			d = newdecl(t.l, DOBJ, t.lit);
 			eat(2);
-			d->h = phint();
-			if (cur() == LASSIGN) {
+			d->ty = ptype();
+			if(cur() == LASSIGN) {
 				eat(1);
 				d->e = pexpr(0);
 			}
@@ -238,17 +265,18 @@ static decl *pdecl() {
 			 *   <id>(<scope>): <hint> = <expr>
 			 */
 			d = newdecl(t.l, DFUNC, t.lit);
+			d->ty = newtype(TFUNC);
 			eat(2);
-			d->s = pscope(LRPAREN);
-			if (expect(LCOLON))
-				d->h = phint();
+			d->ty->s = pscope(LRPAREN);
+			if(expect(LCOLON))
+				d->ty->ty = ptype();
 			else {
 				t = curt();
 				lerro(t.l, "Expected ':' and result type.");
-				d->h = newhint(t.l, HNONE);
+				d->ty->ty = newtype(TNONE);
 			}
 
-			if (cur() == LASSIGN) {
+			if(cur() == LASSIGN) {
 				eat(1);
 				d->e = pexpr(0);
 			}
@@ -263,23 +291,34 @@ static decl *pdecl() {
 		}
 		break;
 	case LDEF:
-		adeus("Type definitions unsupported.");
-	case LALIAS:
 		/*
-		 * Aliases, syntax:
-		 *   alias <id>: <hint>
+		 * Types, syntax:
+		 *   def <id>: <hint> = <expr>
 		 */
 		eat(1);
-		d = newdecl(t.l, DTYPE, curt().lit);
+		d = newdecl(
+			t.l,
+			DDEF,
+			curt().lit
+		);
 		eat(1);
-		if (!expect(LCOLON)) {
-			lerro(curt().l, "Expected ':'.");
+		if(!expect(LCOLON)) {
+			lerro(
+				curt().l,
+				"Expected ':'."
+			);
 			break;
 		}
-		d->h = phint();
+		d->ty = newtype(TTYPE);
+		d->ty->ty = ptype();
+		if(expect(LASSIGN))
+			d->e = pexpr(0);
 		break;
 	default:
-		lerro(t.l, "Expected declaration.");
+		lerro(
+			t.l,
+			"Expected declaration."
+		);
 		id = "!Invalid";
 		goto inval;
 	}
@@ -290,7 +329,8 @@ inval:
 	return newdecl(t.l, DNONE, id);
 }
 
-static expr *pexpr(u32 prec) {
+static expr *
+pexpr(u32 prec) {
 	expr *l;
 
 	expect(LNONE);	 // Skips newlines.
@@ -309,20 +349,21 @@ static expr *pexpr(u32 prec) {
 		[LADD] = 90,
 		[LSUB] = 90,
 		[LAND] = 90,
-		[LNEG] = 90,
+		[LMUL] = 90,
+		[LNOT] = 90,
 	};
 
 	tok t = curt();
 	expr *e = newexpr(t.l, ENONE);
 
 	prec = NPT[t.k];
-	if (prec == 0) {
+	if(prec == 0) {
 		lerro(t.l, "Expected expression.");
 		return e;
 	}
 
 	// Null denotation.
-	switch (t.k) {
+	switch(t.k) {
 	case LADD:
 		e->k = EPLUS;
 		goto unop;
@@ -332,8 +373,11 @@ static expr *pexpr(u32 prec) {
 	case LAND:
 		e->k = EREF;
 		goto unop;
-	case LNEG:
-		e->k = ENEG;
+	case LMUL:
+		e->k = EIND;
+		goto unop;
+	case LNOT:
+		e->k = ENOT;
 		/* fallthrough */
 unop:
 		eat(1);
@@ -362,14 +406,14 @@ unop:
 			nullptr,
 			t.data
 		);
-		if (errno == ERANGE)
+		if(errno == ERANGE)
 			lerro(t.l, "Integer too long.");
 		eat(1);
 		break;
 	case LFLOAT:
 		e->k = EFLOAT;
 		e->flt = strtod(t.lit, nullptr);
-		if (errno == ERANGE)
+		if(errno == ERANGE)
 			lerro(t.l, "Float too long.");
 		eat(1);
 		break;
@@ -377,7 +421,7 @@ unop:
 		eat(1);
 		e->k = EPAREN;
 		e->lhs = pexpr(prec);
-		if (!expect(LRPAREN))
+		if(!expect(LRPAREN))
 			lerro(t.l, "Expected ')'.");
 		break;
 	case LLBRACE:
@@ -388,7 +432,7 @@ unop:
 	case LLBRACKT:
 		eat(1);
 		expect(LNONE);	 // Skips newlines.
-		if (isdecl()) {
+		if(isdecl()) {
 			e->k = ESTRUC;
 			e->s = pscope(LRBRACKT);
 			break;
@@ -428,19 +472,20 @@ unop:
 		[LREM] = 80,
 
 		[LLPAREN] = 110,
+		[LTILDE] = 110,
 		[LDOT] = 110,
 	};
 
 led:
 	t = curt();
 	u32 nprec = LPT[t.k];
-	if (nprec < prec)
+	if(nprec < prec)
 		return e;
 
 	prec = nprec;
 	l = newexpr(t.l, ENONE);
 
-	switch (t.k) {
+	switch(t.k) {
 	case LAND:
 		l->k = EAND;
 		goto binop;
@@ -498,13 +543,12 @@ binop:
 		eat(1);
 		l->k = EDOT;
 		l->lhs = e;
-		expect(LNONE);
-		t = curt();
-		if (t.k != LID) {
-			lerro(t.l, "Expected identifier.");
+		if(cur() != LID) {
+			lerro(curt().l, "Expected id.");
+			l->str = "";
 			break;
 		}
-		l->str = t.lit;
+		l->str = curt().lit;
 		eat(1);
 		break;
 	case LLPAREN:
@@ -512,6 +556,25 @@ binop:
 		l->k = ECALL;
 		l->lhs = e;
 		l->ls = plist(LRPAREN);
+		break;
+	case LLBRACKT:
+		eat(1);
+		l->k = ESUBS;
+		l->lhs = e;
+		l->rhs = pexpr(0);
+		if(!expect(LRBRACKT))
+			lerro(curt().l, "Expected ']'.");
+		break;
+	case LTILDE:
+		eat(1);
+		l->k = EINST;
+		l->lhs = e;
+		if(!expect(LLBRACKT)) {
+			lerro(curt().l, "Expected '['.");
+			l->ls = newlist();
+			break;
+		}
+		l->ls = plist(LRBRACKT);
 		break;
 	default:
 		/*
@@ -533,19 +596,20 @@ binop:
 	goto led;
 }
 
-static stmt *pstmt() {
+static stmt *
+pstmt() {
 	stmt *s;
 	expr *e;
 	tok t = curt();
 
-	switch (t.k) {
+	switch(t.k) {
 	case LRESULT:
 		eat(1);
 		s = newstmt(t.l, SRESULT);
 		s->e = pexpr(0);
 		break;
 	case LID:
-		if (peek() != LCOLON)
+		if(peek() != LCOLON)
 			goto exprs;
 
 		/*
@@ -554,11 +618,11 @@ static stmt *pstmt() {
 		 * they are not. Stack stmts may
 		 * be shadowed in the operation.
 		 */
-		s = newstmt(t.l, SSTACK);
+		s = newstmt(t.l, SLOCAL);
 		s->id = t.lit;
 		eat(2);	// eats LID LCOLON
-		s->h = phint();
-		if (cur() == LASSIGN) {
+		s->ty = ptype();
+		if(cur() == LASSIGN) {
 			eat(1);
 			s->e = pexpr(0);
 		}
@@ -567,14 +631,14 @@ static stmt *pstmt() {
 		eat(1);
 		s = newstmt(t.l, SIF);
 		s->e = pexpr(0);
-		if (!expect(LLBRACE)) {
+		if(!expect(LLBRACE)) {
 			lerro(curt().l, "Expected '{'.");
 			break;
 		}
 		s->blk = pblock(LRBRACE);
-		if (cur() == LELSE) {
+		if(cur() == LELSE) {
 			eat(1);
-			if (!expect(LLBRACE)) {
+			if(!expect(LLBRACE)) {
 				lerro(curt().l, "Expected '{'.");
 				break;
 			}
@@ -587,26 +651,26 @@ static stmt *pstmt() {
 		expect(LNONE);	 // Skips newlines.
 
 		/* First field, initialization. */
-		if (!expect(LCOMMA) && isstmt()) {
+		if(!expect(LCOMMA) && isstmt()) {
 			s->init = pstmt();
-			if (!expect(LCOMMA))
+			if(!expect(LCOMMA))
 				goto forblk;
 		}
 
 		/* Second field, post-instruction. */
-		if (isstmt()) {
+		if(isstmt()) {
 			s->post = pstmt();
-			if (!expect(LCOMMA))
+			if(!expect(LCOMMA))
 				goto forblk;
 		}
 
 		/* Third field, condition. */
 		expect(LNONE);	 // Skips newlines.
-		if (cur() != LLBRACE)
+		if(cur() != LLBRACE)
 			s->e = pexpr(0);
 
 forblk:
-		if (!expect(LLBRACE)) {
+		if(!expect(LLBRACE)) {
 			lerro(curt().l, "Expected '{'.");
 			break;
 		}
@@ -621,7 +685,7 @@ forblk:
 	default:
 exprs:
 		e = pexpr(0);
-		switch (cur()) {
+		switch(cur()) {
 		case LASSIGN:
 			eat(1);
 			s = newstmt(curt().l, SASSIGN);
@@ -638,18 +702,19 @@ exprs:
 	return s;
 }
 
-static scope *pscope(tokk ter) {
+static scope *
+pscope(tokk ter) {
 	decl *d;
 	scope *s = newscope();
 
 again:
 	tok t = curt();
-	if (t.k == ter) {
+	if(t.k == ter) {
 		eat(1);
 		return s;
 	}
 
-	switch (t.k) {
+	switch(t.k) {
 	case LNONE:
 		adeus("Received a LNONE.");
 	case LEOF:
@@ -668,9 +733,9 @@ again:
 		d = pdecl();
 		declare(s, d);
 
-		if (expect(LEOL) || expect(LCOMMA))
+		if(expect(LEOL) || expect(LCOMMA))
 			goto again;
-		if (expect(ter))
+		if(expect(ter))
 			return s;
 
 		lerro(
@@ -680,8 +745,8 @@ again:
 		);
 
 		/* The state is unknown here. */
-		for (;;) {
-			if (cur() == LEOF || expect(ter))
+		for(;;) {
+			if(cur() == LEOF || expect(ter))
 				return s;
 
 			eat(1);
@@ -690,18 +755,19 @@ again:
 	}
 }
 
-static list *plist(tokk ter) {
+static list *
+plist(tokk ter) {
 	expr *e;
 	list *l = newlist();
 
 again:
 	tok t = curt();
-	if (t.k == ter) {
+	if(t.k == ter) {
 		eat(1);
 		return l;
 	}
 
-	switch (t.k) {
+	switch(t.k) {
 	case LNONE:
 		adeus("An LNONE.");
 	case LEOF:
@@ -728,9 +794,9 @@ again:
 		e = pexpr(0);
 		append(l, e);
 
-		if (expect(LEOL) || expect(LCOMMA))
+		if(expect(LEOL) || expect(LCOMMA))
 			goto again;
-		if (expect(ter))
+		if(expect(ter))
 			return l;
 
 		lerro(
@@ -740,8 +806,8 @@ again:
 		);
 
 		/* The state is unknown here. */
-		for (;;) {
-			if (cur() == LEOF || expect(ter))
+		for(;;) {
+			if(cur() == LEOF || expect(ter))
 				return l;
 
 			eat(1);
@@ -750,18 +816,19 @@ again:
 	}
 }
 
-static block *pblock(tokk ter) {
+static block *
+pblock(tokk ter) {
 	stmt *s;
 	block *b = newblock();
 
 again:
 	tok t = curt();
-	if (t.k == ter) {
+	if(t.k == ter) {
 		eat(1);
 		return b;
 	}
 
-	switch (t.k) {
+	switch(t.k) {
 	case LNONE:
 		adeus("An LNONE.");
 	case LEOF:
@@ -780,9 +847,9 @@ again:
 		s = pstmt();
 		join(b, s);
 
-		if (expect(LEOL) || expect(LCOMMA))
+		if(expect(LEOL) || expect(LCOMMA))
 			goto again;
-		if (expect(ter))
+		if(expect(ter))
 			return b;
 
 		lerro(
@@ -792,8 +859,8 @@ again:
 		);
 
 		/* The state is unknown here. */
-		for (;;) {
-			if (cur() == LEOF || expect(ter))
+		for(;;) {
+			if(cur() == LEOF || expect(ter))
 				return b;
 
 			eat(1);
@@ -802,9 +869,10 @@ again:
 	}
 }
 
-void parse(unit *u) {
+void
+parse() {
 	u->s = pscope(LEOF);
-	if (u->s->dc == 0) {
+	if(u->s->dc == 0) {
 		erro("Empty unit.");
 		return;
 	}

@@ -6,7 +6,7 @@ add_executable(
    utils.c
    diag.c
    parser.c
-   analyser.c
+   check.c
    ast.c
    runetable.c
 )

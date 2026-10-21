@@ -1,0 +1,548 @@
+The Meg Programming Language Specification
+------------------------------------------
+
+   This specification is in progress.
+
+THE BASE.
+---------
+
+   The Meg Programming Language is organised in 4
+element models: the declaration, the expression,
+the statement and the hint. Each represents an 
+AST node type. Also, there are 4 language
+concepts: the type, the list, the block and the
+scope, which defines how to organise the language
+syntatical elements in the AST.
+
+LEXICAL BASES.
+--------------
+
+1 KEYWORDS.
+-----------
+
+   List:
+      anex
+	   break
+	   case
+	   const
+	   continue
+	   def
+	   defer
+	   else
+      enum
+	   for
+      goto
+	   hole
+	   if
+	   of
+      union
+      use
+
+1. THE HINT.
+------------
+
+   Formely Type Hints, are the syntatical
+elements that lets you to write (and the
+compiler to show) type representations. There
+are 6 kinds of hints: the expression (expr), the
+refernce (ref), the functional (func), the
+structure (struct), the array and the union.
+
+1.1 THE EXPRESSION.
+-------------------
+
+   Syntax:
+      <expr>
+
+   The exression hint simply consists in n
+expression that results in a type. The
+expression must be constant.
+
+1.2 THE REFERENCE.
+------------------
+
+   Syntax:
+      &<hint>
+
+   EXAMPLE
+      &i32
+      & \ Type will be infered. \
+
+   A reference will always a memory pointer
+that can be null or a pointer to a valid
+object. Every reference must have a type,
+specified in the hint next to '&'. If that
+hint is empty or incomplete, the typechecker
+should infer.
+
+1.3 THE FUNCTIONAL.
+-------------------
+
+   Syntax:
+      (<scope>)<hint>
+
+   EXAMPLE
+      ()i32
+      () \ Type will be infered. \
+      (x: i32, y: i32) \ With parameters. \
+
+   Consists in a list of parameters (parametral
+scope) and a result type, specified in the hint
+next to ')'. If that hint is empty or
+incomplete, the typechecker should infer.
+
+1.4 THE STRUCTURE.
+------------------
+
+   Syntax:
+      [<scope>]
+
+   EXAMPLE
+      [x: i32, y: i32]
+
+   Consists in a list of objects (fields) that
+will always be visible outside of it. Structs
+can't have its members infered.
+
+1.5 THE ARRAY.
+--------------
+
+   Syntax:
+      [<expr>]<hint>
+
+   EXAMPLE
+      [4]i32
+      [4] \ Type will be infered. \
+
+   Consists in a constant expression (size)
+and a type, specified next to ']'. If that
+hint is empty or incomplete, the typechecker
+should infer. In case of the size be an
+expression refernce to a variable, then this
+array will be an slice (a pointer and a size
+see the type concept).
+
+1.6 THE UNION.
+--------------
+
+   Syntax:
+      union[<scope>]
+
+   EXAMPLE
+      union[none: [], some: i32]
+   
+   Consists in a list of objects (permutation)
+that should have a different from each other.
+An assignment may only occur when the type
+is compatible with the type of one of the
+members. Its permutations can't be infered. An
+union must have any permutation.
+
+2. THE EXPRESSION.
+------------------
+
+   An expression in the Meg Programming
+Language is classified in:
+   - Binary operators;
+   - Unary operators;
+   - Specialised operators;
+   - Articulations, and
+   - Literals.
+
+2.1 THE BINARIES OPERATORS.
+
+   Syntax:
+      <expr> <binop> <expr>
+   
+   There are 17 binary operators, each one have
+different functions and works in different type
+categories. The operands must be of the same
+type.
+
+2.1.1 The Addition Operator.
+
+   Operator: +
+
+   Receives two integer or float operands, the
+result will be the sum of the two.
+
+2.1.2 The Subtraction Operator.
+
+   Operator: -
+
+   Receives two integer or float operands, the
+result will be the subtraction of the left
+operand by the right operand.
+
+2.1.3 The Multiplication Operator.
+
+   Operator: *
+
+   Receives two integer or float operands, the
+result will be the product of the two. 
+
+2.1.4 The Division Operator.
+
+   Operator: /
+
+   Receives two integer or float operands, the
+result will be the division of the left operand
+by the right operand. If the left operand is 0,
+the result will always be 0.
+
+2.1.5 The Remainder Operator.
+
+   Operator: %
+
+   Receives two integer or float operands, the
+result will be the remainder of the division of
+the left operand by the right operand. If the
+left operand is 0, the result will always be 0.
+
+2.1.6 The AND Operator.
+
+   Operator: &
+
+   Receives two integer operands, the result will
+have each bit activated if the same bit in both
+operands is activated; otherwise, the bit will
+be deactivated.
+
+2.1.7 The OR Operator.
+
+   Operator: |
+
+   Receives two integer operands, the result will
+have each bit activated if the same bit in one or
+both operands is activated; otherwise, the bit
+will be deactivated.
+
+2.1.8 The EOR Operator.
+
+   Operator: ^
+
+   Receives two integer operands, the result will
+have each bit activated if the same bit in only
+one of the operands is activated; otherwise, the
+bit will be deactivated.
+
+2.1.9 The Logic AND Operator.
+
+   Operator: &&
+
+   Receives two boolean operands, the result will
+be true if both operands are true; otherwise, the
+result will be false.
+
+2.1.10 The Logic OR Operator.
+
+   Operator: ||
+
+   Receives two boolean operands, the result will
+be true if one or both operands is true; 
+otherwise, the result will be false.
+
+2.1.11 The Equality Operator.
+
+   Operator: ==
+
+   Receives two integer, float, boolean or
+reference operands, the result will be true if
+the first operand equals the second;
+otherwise, the result will be false.
+
+2.1.12 The Inequality Operator.
+
+   Operator: !=
+
+   Receives two integer, float, boolean or
+reference operands, the result will be true if
+the first operand does not equal the second;
+otherwise, the result will be false.
+
+2.1.12 The Greater-Than Operator.
+
+   Operator: >
+
+   Receives two integer or float operands, the
+result will be true if the first operand is
+greater than the second; otherwise, the result
+will be false.
+
+2.1.13 The Less-Than Operator.
+
+   Operator: <
+
+   Receives two integer of float operands, the
+result will be true if the first operand is less
+than the second; otherwise, the result will be
+false.
+
+2.1.14 The Greater-Than-or-Equal-to Operator.
+
+   Operator: >=
+
+   Receives two integer or float operands, the
+result will be true if the first operand is
+greater than or equals the second; otherwise, the
+result will be false.
+
+2.1.15 The Less-Than-or-Equal-to Operator.
+
+   Operator: <=
+
+   Receives two integer or float operands, the
+result will be true if the first operand is
+less than or equals the second; otherwise, the
+result will be false.
+
+2.1.16 The Access operator.
+
+   Operator: .
+
+   Receives any addressable expression with open
+scope. The operator will enter the scope of the
+left expression and evaluate the right
+expression, returning it as result.
+
+2.2 THE UNARY OPERATORS.
+
+   Syntax:
+      <unop> <expr>
+
+   There are 6 unary operators, that have
+different functions and works in different type
+categories.
+
+2.2.1 The Address Operator.
+
+   Operator: &
+
+   Receives any expression, as long as this
+expression is addresable. Results in a reference
+to the object.
+
+2.2.2 The Indirection Operator.
+
+   Operator: *
+
+   Receives any expression if type category
+reference. The result will be the value of the
+object pointed by the operand. The result is
+addressable and corresponds to the ownership of
+the object pointed by the operand.
+
+2.2.3 The NOT operator.
+
+   Operator: !
+
+   Case the operand is integer, the result will
+be the bitwise complement of the operand. Case
+the operand is boolean, the result will be true
+if the operand is false; otherwise, the result
+will be false.
+
+2.2.4 The Plus Operand.
+
+   Operator: +
+
+   The operand must be integer or float, the
+result will be the operand itself.
+
+2.2.5 The Minus Operand.
+
+   Operator: -
+
+   The operand must be a signed integer or float,
+the result will be 0 subtracted by the operand.
+
+2.3 THE SPECIALISED OPERATORS.
+------------------------------
+
+   The syntax of the specialised operators are:
+
+2.3.1 The Call Operator.
+
+   Syntax:
+      <expr>(<list>)
+
+   If the first argument of the list have a type
+with methods, the operator will entry in this
+scope before evaluating the operand expression.
+The operand, must have a functional type and the
+argument count and types must match with the
+operand parametral scope type. The result will
+be the result of the functiona execution.
+
+2.3.1 The Subscript Operator.
+
+   Syntax:
+      <expr>[<i: expr>]
+
+   The operand must be an array or slice, and the
+expression inside brackets must be an integer.
+The result will be the object at position i in
+the array/slice. The result is addressable,
+corresponding to the ownership of the object at
+position i in the array.
+
+2.3.2 The Slice Operator.
+
+   Syntax:
+      <expr>[<i: expr> ~ <e: expr>]
+
+   The operand must be an array or slice, the i
+expression represents where, in the array, the
+slice will begin and e represents where it will
+end. The slice will have length equal to e - i.
+When i is omitted, it will be implicity 0. When
+e is omitted, it will be the operand length. The
+objects from i to e in the operand will be
+borrowed.
+
+3.4 THE ARTICULATIONS.
+----------------------
+
+   Articulations are expressions that lets us to
+create strucures and arrays directly.
+
+3.4.1 The Structure Articulation.
+
+   Syntax:
+      [<scope>]
+   
+   All the declarations inside the scope must
+have an initialiser expression that will be the
+value of the items after the initialisation.
+
+   EXAMPLE
+      s := [
+         x := 1
+         y := 3
+      ]
+      z := x + y \ z will be 4. \
+
+3.4.2 The Array Articulation.
+
+   Syntax:
+      [<list>]
+
+   Consists in a list of objects or key value
+expressions, all the expressions in the array
+must have the same type. If the list consists of
+key value expressions, the keys must be integer
+and be single in the list. The result will be an
+array of the first expression type and the list
+size or the biggest key in the list + 1 as its
+length. Fields not specified or in key value list
+will be initialised with their default value.
+
+3.4.3 The Base Articulation.
+
+   Syntax:
+      <type>~[<list>]
+
+   The operand must be a type expression to a
+structure type. The list must be a list of
+key value expressions that specifies the
+structure field (dref) and its values. If a key
+appears more than once, the compiler should
+complain. If a key don't appears, the compiler
+will complain only if it has no initialiser in
+the structure. The result will be an structure
+of the type returne by the operand.
+
+3. THE DECLARATION.
+-------------------
+
+   Every declaration in the Meg Programming
+Language consists in an ID, a hint and,
+opitionally, an initialiser expression. Its
+ID will be visible in the current scope and
+all the scopes within it. If the initialiser
+expression is given to a declaration, then
+the declaration hint may be omitted and its
+type will be infered.
+
+3.1 THE OBJECT.
+---------------
+
+   Syntaxes:
+
+   1, with no initialiser:
+   <ID>: <hint>
+
+   2, with initialiser:
+   <ID>: <hint> = <expr>
+
+   EXAMPLE:
+      number := 123
+      array: [10]i32 
+
+   If any, the initialiser should be constant and
+capable to be solved in compilation time. In this
+case, when the object is a global variable,
+function parameter or structure field, the object
+will be automatically be iniialized.
+   Objects can have its memory addresses 
+adquired. However, inside the limits of this
+programming language, an object address can have
+only one owner at time, whether by reference or
+not.
+
+3.2 THE FUNCTION.
+-----------------
+
+   Syntaxes:
+
+   1, no initialiser (external).
+   <ID>(<scope>): <hint>
+
+   2, with initialiser.
+   <ID>(<scope>): <hint> = <expr>
+
+   EXAMPLE:
+      puts(s: str): []
+      sum(a: i32, b: i32) := x + y
+
+   The initialiser will be executed at
+runtime, but it should be solved at compile
+time when aplicable. The initialiser will be
+in the same scope that the parameters. Every
+function will have a functional type after
+typecheck analysis.
+
+3.3 TYPES.
+----------
+
+   Syntaxes:
+      def <id>: <hint>
+      def <id>: <hint> = <expr>
+   
+   EXAMPLE
+      def Account: [
+         name: str
+         password: str
+      ]
+      def Age: i32 = 0
+   
+   A new type will be declared with the
+specified id as an alias to the specified type.
+This new type cannot be casted to the base type
+and virse-versa. The base type will not be
+visible outside this unit or module if this type
+is not public or exported, in this case, it will
+be an anonymous type and only its id, size and
+alignment will be visible.
+   If this type is not public or if the base is
+not copyable, it will not be copyable too.
+Otherwise, this type will be copyable.
+   When a type have an initialiser, it will not
+be public outside this unit or module if this
+type is not. This initialiser may be override by
+the object or type as long as it uses this type.
+
+4. THE STATEMENTS.
+-----------------
+
+   

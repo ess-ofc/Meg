@@ -47,13 +47,13 @@ BraceWrapping:
   SplitEmptyRecord: false
   SplitEmptyNamespace: false
 BreakAdjacentStringLiterals: true
-BreakAfterAttributes: Leave
+BreakAfterAttributes: LeaveAll
 BreakAfterOpenBracketBracedList: true
 BreakAfterOpenBracketFunction: true
 BreakAfterOpenBracketIf: true
 BreakAfterOpenBracketLoop: true
 BreakAfterOpenBracketSwitch: true
-BreakAfterReturnType: None
+BreakAfterReturnType: AllDefinitions
 BreakBeforeBinaryOperators: None
 BreakBeforeBraces: Custom
 BreakBeforeCloseBracketBracedList: true
@@ -102,7 +102,7 @@ SpaceBeforeCaseColon: false
 SpaceBeforeCpp11BracedList: false
 SpaceBeforeCtorInitializerColon: false
 SpaceBeforeInheritanceColon: false
-SpaceBeforeParens: ControlStatements
+SpaceBeforeParens: Never
 SpaceBeforeRangeBasedForLoopColon: false
 SpaceBeforeSquareBrackets: false
 SpacesBeforeTrailingComments: 2

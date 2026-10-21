@@ -81,6 +81,7 @@ struct dbuk {
  * scope` isn't an AST node.
  */
 struct scope {
+	scope *next;
 	/* Map. */
 	dbuk
 		*map,			 // Map.
@@ -120,51 +121,34 @@ struct block {
 
 enum typek : u08 {
 	TNONE,
+	TEXPR,  // Expr like mod.type.
 	TINT,
 	TFLOAT,
 	TBOOL,
-	TRUNE,
 	TREF,
 	TFUNC,
 	TSTRUC,
 	TARRAY,
+	TSLICE,
+	TUNION,
 	TTYPE
 };
 typedef enum typek typek;
 
 struct type {
 	typek k;
-	loc l;
 	size sz;
+	decl *d;	 // When is derived from a def.
 	bool sign;
-	bool move;	// Type may not be copied.
+	bool move;	 // Type may not be copied.
+	expr *init;	 // Initialiser.
+	expr *e;		 // TEXPR or array length.
 
-	type *ty;  // Secondary type, may be null.
-	scope *s;  // Parameters or fields.
+	type *ty;	 // Secondary type, may be null.
+	scope *s;	 // Parameters, permutations or fields.
+	scope *met;	 // Associated functions.
 
-	/* TARRAY */
-	i64 asz;			// -1 for slices.
-	expr *szexpr;	// Constexpr.
-};
-
-/* Hints. */
-
-enum hintk {
-	HNONE,
-	HEXPR,
-	HREF,
-	HFUNC,
-	HSTRUC,
-	HARRAY
-};
-typedef enum hintk hintk;
-
-struct hint {
-	hintk k;
-	loc l;
-	hint *ty;  // Secondary types.
-	expr *e;	  // HEXPR or array size.
-	scope *s;  // Parameters or fields.
+	i64 len;
 };
 
 /* Declarations. */
@@ -173,18 +157,19 @@ enum declk : u08 {
 	DNONE,
 	DFUNC,
 	DOBJ,
-	DTYPE	 // Primitives.
+	DCONST,
+	DDEF
 };
 typedef enum declk declk;
 
 struct decl {
 	declk k;
+	i32 ck;
 	loc l;
 	str id;
-	type *ty;  // After analysis.
-	hint *h;
-	void *p;	 // Code generation data.
+	type *ty;
 
+	size i;	// Struct or parameter index, set up by declare().
 	expr *e;
 
 	/* DTYPE */
@@ -196,6 +181,7 @@ struct decl {
 enum exprk : u08 {
 	ENONE,
 
+	/* Binary operators. */
 	EADD,
 	ESUB,
 	EMUL,
@@ -212,30 +198,39 @@ enum exprk : u08 {
 	ELSS,
 	EGEQ,
 	ELEQ,
+	EKEY,	 // Key-value.
 	EDOT,
 
+	/* Unary operators. */
 	EREF,
-	ECALL,
-	ENEG,
+	EIND,
 	ENOT,
 	EPLUS,
 	EMINUS,
-	EOPER,
 
-	EPAREN,
+	/* Specialised operators. */
+	ECALL,
+	ESUBS,  // array[i]
+	EINST,  // StructType~[field = val]
+
+	/* Articulations. */
 	EDREF,
+	EPAREN,
+	EOPER,
+	ESTRUC,
+	EARRAY,
+
+	/* Literals. */
 	EINTEGER,
 	EFLOAT,
-	EBOOL,
 	ERUNE,
-	ESTRING,
-	ESTRUC,
-	EARRAY
+	ESTRING
 };
 typedef enum exprk exprk;
 
 struct expr {
 	exprk k;
+	i32 ck;	// Avoids reccursion.
 	loc l;
 	expr *next;
 	type *ty;
@@ -243,13 +238,13 @@ struct expr {
 	/* Most nodes. */
 	expr *lhs;
 	expr *rhs;
-	str str;
 	decl *d;
+	str str;
 
 	/* ESTRING */
 	size n;
 
-	/* ECALL, EARRAY */
+	/* ECALL, EARRAY, EBASE */
 	list *ls;
 
 	/* ESTRUC */
@@ -270,14 +265,15 @@ struct expr {
 enum stmtk {
 	SNONE,
 	SRESULT,
-	SSTACK,
+	SLOCAL,
 	SIF,
 	SFOR,
 	SCASE,
-	SHOLE,
+	SOF,
 	SBREAK,
 	SCONTINUE,
 	SFALL,
+	SHOLE,
 	SASSIGN,
 	SEXPR
 };
@@ -285,19 +281,19 @@ typedef enum stmtk stmtk;
 
 struct stmt {
 	stmtk k;
+	i32 ck;	// Avoids reccursion.
 	loc l;
 	stmt *next;
 
 	expr *e;
 	block *blk;	 // SIF, SFOR block.
 	stmt *init;	 // SIF, SFOR initialization.
+	str id;
+	decl *d;
+	type *ty;
 
 	/* SFOR */
 	stmt *post;	 // Post-instruction stmt.
-
-	/* SSTACK (local variable) */
-	str id;
-	hint *h;
 
 	/* SIF */
 	block *els;
@@ -305,6 +301,8 @@ struct stmt {
 	/* SASSIGN */
 	expr *lhs;
 };
+
+/* Tokens. */
 
 enum tokk {
 	LNONE,
@@ -314,19 +312,23 @@ enum tokk {
 
 	LID,
 
-	LDEF,
-	LALIAS,
-	LMUT,
-	LCONST,
-	LIF,
-	LELSE,
-	LDEFER,
-	LHOLE,
-	LCASE,
-	LOF,
-	LFOR,
+	LANEX,
 	LBREAK,
+	LCASE,
+	LCONST,
 	LCONTINUE,
+	LDEF,
+	LDEFER,
+	LELSE,
+	LENUM,
+	LFALL,
+	LFOR,
+	LGOTO,
+	LHOLE,
+	LIF,
+	LOF,
+	LUNION,
+	LUSE,
 
 	LINTEGER,
 	LFLOAT,
@@ -341,7 +343,7 @@ enum tokk {
 	LAND,
 	LBOR,
 	LEOR,
-	LNEG,
+	LNOT,
 	LLAND,
 	LLOR,
 	LEQL,
@@ -365,7 +367,6 @@ enum tokk {
 	LASSIGN,
 	LRESULT,
 	LTILDE,
-	LDOLLAR,
 
 	LEND
 };
@@ -382,6 +383,7 @@ struct tok {
 /* main.c */
 
 extern LOCAL str file;
+extern LOCAL unit *u;
 
 extern str progname;
 extern bool	 // Flags.
@@ -390,8 +392,8 @@ extern bool	 // Flags.
 
 /* ast.c */
 
-unit *newunit(str id);
-hint *newhint(loc l, hintk k);
+void newunit(str id);
+type *newtype(typek k);
 decl *newdecl(loc l, declk k, str id);
 expr *newexpr(loc l, exprk k);
 stmt *newstmt(loc l, stmtk k);
@@ -423,12 +425,27 @@ str intern(str s, size n);
 /* parser.c */
 
 void parserinit();
-void parse(unit *u);
+void parse();
 
-/* analyser.c */
+/* check.c */
 
-void analyserinit();
-void analyse(unit *u);
+LOCAL extern type
+	*tnone,	// For untyped things.
+	*ti08,
+	*ti16,
+	*ti32,
+	*ti64,
+	*tu08,
+	*tu16,
+	*tu32,
+	*tu64,
+	*tf32,
+	*tf64,
+	*tbool,
+	*astr;
+
+void checkinit();
+void check();
 
 /* utis.c */
 
@@ -438,12 +455,9 @@ void *alloc(size n);
 scope *newscope();
 decl *getdecl(scope *s, str id);
 void declare(scope *s, decl *d);
-bool scopeql(scope *x, scope *y);
 list *newlist();
 void append(list *l, expr *e);
-bool listeql(list *x, list *y);
-type *newtype(loc l, typek k);
-bool tyeql(type *x, type *y);
 block *newblock();
 void join(block *b, stmt *s);
+type *internty(type *tp);
 str tokname(tokk);
