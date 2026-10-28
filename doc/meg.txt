@@ -1,0 +1,473 @@
+The Meg Programming Language Specification Draft
+________________________________________________
+
+	Meg is a systems programming language,
+designed to be simple and not segfault.
+
+| Don't forget Meg 2020 ~ 10.06.2025
+
+Summary
+_______
+
+Lexical Elements
+	Keywords
+	Identifiers
+	Integer Constant
+	Floating Constant
+	Rune Constant
+	Strings
+	Punctuators
+	Separators
+Language Syntax
+	Hints
+		Expression
+		Pointer
+		Reference
+		Functional
+		Structure
+		Union
+	Declarations
+		Function
+		Object
+		Constant
+		Type
+	Expressions
+		Primary Expressions
+			Declatation Reference
+			Constant
+			String
+			Rune
+			Paentheses
+			Structure Articulation
+			Array Articulation
+			Block
+		Prefix Expressions
+			NOT
+			Plus
+			Minus
+			Address
+			Indirect
+			Size of
+			Length of
+			Offset of
+		Postfix Expressions
+			Call or Type Cast
+			Subscript or Articulation
+		Multiplicative Expressions
+			Multiply
+			Divide
+			Remainder
+		Additive Expressions
+			Add
+			Subtract
+		Shift Expressions
+			Left Shift
+			Right Shift
+		AND Expression
+		IOR Expression
+		EOR Expression
+		Relational Expressions
+			Greater-than
+			Less-than
+			Greater-than or Equal-to
+			Less-than or Equal-to
+		Equality Expressions
+			Equal-to
+			Unequal-to
+	Statements
+		Result
+		Copy
+		If
+		For
+		Case
+		Of
+		Label
+		Break
+		Continue
+		Defer
+		Hole
+		Goto
+		Incremment
+		Decremment
+		Assignment
+		Add and Assign
+		Subtract and Assign
+		Multiply and Assign
+		Divide and Assign
+		Remainder and Assign
+		Left Shift and Assign
+		Right Shift and Assign
+		AND and Assign
+		IOR and Assign
+		EOR and Assign
+		Declaration
+		Expressions
+
+Lexical Elements
+________________
+
+Keywords
+________
+
+	The following identifiers are reserved
+keywords:
+
+keyword: one of
+	annex
+	break
+	case
+	const
+	continue
+	def
+	defer
+	else
+	fall
+	for
+	goto
+	hole
+	if
+	of
+	union
+	use
+
+Identifiers
+___________
+
+	An identifier is a sequence of ID_Continue
+characters, except the first character that must
+begin with an ID_Start character:
+
+identifier:
+		ID_Start
+		identifier-continue
+
+	identifier-continue:
+		identifier
+		ID_Continue
+
+Integer Constant
+
+Syntax:
+
+	integer-constant:
+		decimal-sequence
+		'0b' binary-sequence
+		'0o' octal-sequence
+		'0x' hexadecimal-sequence
+
+	decimal-sequence:
+		decimal-digit
+		decimal-sequence '_' decimal-digit
+
+	binary-sequence:
+		binary-digit
+		binary-sequence '_' binary-digit
+
+	octal-sequence:
+		octal-digit
+		octal-sequence '_' octal-digit
+
+	hexadecimal-sequence:
+		hexadecimal-digit
+		hexadecimal-sequence '_' hexadecimal-digit
+
+	decimal-digit:
+		0 1 2 3 4 5 6 7 8 9
+
+	binary-digit: one of
+		0 1
+
+	octal-digit:
+		0 1 2 3 4 5 6 7
+
+	hexadecimal-digit:
+		0 1 2 3 4 5 6 7 8 9
+		a b c d e f
+
+Floating Constants
+__________________
+
+Syntax:
+
+	floating-constant:
+		decimal-floating-constant
+		hexadecimal-floating-constant
+
+	decimal-floating-constant:
+		decimal-sequence '.' decimal-sequence opt(exponent-part)
+		decimal-sequence exponent-part
+
+	hexadecimal-floating-constant:
+		'0x' hexadecimal-sequence '.' hexadecimal-sequence opt(binary-exponent-part)
+		'0x' hexadecimal-sequence binary-exponent-part
+
+	exponent-part:
+		'E' opt(sign) decimal-sequence
+
+	binary-exponent-part:
+		'P' opt(sign) decimal-sequence
+
+	sign: one of
+		+ -
+
+Rune Constant
+_____________
+
+Syntax:
+
+	rune-constant:
+		' utf8-char '
+		' scaped-char '
+
+	urf8-char: defined as
+		Any character enconded in UTF-8.
+
+	scaped-char:
+		simple-scape-sequence
+		hexadecimal-scape-sequence
+
+	simple-scape-sequence: one of
+		\' \" \? \\ \a \b \f \n \r \t \v
+
+	hexadecimal-scape-sequence:
+		\u hexadecimal-digit hexadecimal-digit hexadecimal-digit hexadecimal-digit
+
+Strings
+_______
+
+Syntax:
+
+	string:
+		" char-sequence "
+
+	char-sequence:
+		char
+		char-sequence char
+
+	char:
+		uft8-char
+		scaped-char
+
+Punctuators
+___________
+
+Syntax:
+
+	punctuator: one of
+		+  += &  &= >= @  {  }
+		-  -= |  |= <= .  [  ]
+		*  *= ^  ^= == ,  (  )
+		/  /= !  >  != :  ++ --
+		%  %= =  <  ~  ;  =>
+
+The @ character will indicate a pragma directive,
+which is still undefined. It remains reserved.
+
+Separators
+__________
+
+Syntax:
+	separator:
+		,
+
+A separator consists of a ',' (comma) charater.
+However, a newline character will virtually
+produce a separator if it is not preceeded by
+following elements:
+
+	(  [  {  .  ,  ;
+	+  += &  &= >=
+	-  -= |  |= <=
+	*  *= ^  ^= ==
+	/  /= !  >  !=
+	%  %= =  <  ~
+
+otherwise, the newline character will be ignored.
+
+Language Syntax
+_______________
+
+Hints
+_____
+
+Syntax:
+
+	hint: may be
+		expression
+		pointer-hint
+		reference-hint
+		functional-hint
+		structure-hint
+		array-hint
+		union-hint
+
+	pointer-hint:
+		* hint
+
+	reference-hint:
+		& hint
+
+	functional-hint:
+		( declaration-list ) hint
+
+	structure-hint:
+		[ declaration-list ]
+
+	array-hint:
+		[ expression ] hint
+
+	union-hint:
+		union [ declaration-list ]
+
+	declaration-list:
+		declaration
+		declaration-list separator declaration
+
+Hints can represents types in the syntatical form
+that will be translated as semantic information.
+
+If a type hint is empty (like var: \ empty \ = 10
+or ref: &\ empty \ = &val) it will produce an
+incomplete type that the type aplicator should
+infer.
+
+Some hints need a declaration list (functional,
+structure and union hints) that is constrained to
+contain only object declarations.
+
+Expression
+___________
+
+An expression hint consists of an expression that
+is constrained to result in a constant value of
+type `type', which will be the result type.
+
+Pointer
+_______
+
+The secondary hint will represent the objects
+type for which it can point.
+
+Reference
+_________
+
+The secondary hint will represent the objects
+type for which it can refer.
+
+Structure
+_________
+
+A structure represents a set of data organised as
+objects. Each object inside will have its own
+alignment and size, the order of the fields in
+which it appears will be the same in memory.
+
+Example
+
+	For the structure:
+		[
+			x: bool
+			y: u64
+			z: i16
+		]
+
+	the memory organisation will be
+		[       x -- 1 byte  ]
+		[ padding -- 7 bytes ]
+		[       y -- 8 bytes ]
+		[       z -- 2 bytes ]
+		[ padding -- 6 bytes ]
+
+	Total size: 24 bytes.
+
+The last padding is because the bigest alignment
+in the structure is y (8 bytes) so the structure
+will have 8 bytes of aligment too, the aligment
+helps us to mantain the alignment (as in arrays).
+
+All objects inside the structure must have
+non-dynamic sizes.
+
+Array
+_____
+
+The expression inside the brackets must be any
+integer expression that can represent the array
+size. The array will only have its size fixed if
+the array size is immutable.
+
+Example
+
+	main() := {
+		n := 16
+		array: [n]i32
+		=> []
+	}
+
+In the example, n will not change until the
+array allocation.
+
+Example
+
+	main() := {
+		n: size
+		if true {
+			n = 16
+		} else {
+			n = 32
+		}
+		array: [n]i32
+		=> []
+	}
+
+In this example, n will always be 16.
+
+In some contexts, all the objects size must be
+prevsible and have only one possibility, but
+there are some exceptions. Arrays passed by
+reference may have dynamic size:
+
+Example
+
+	read(buf: &[n]u08, n: size) := {
+		syscall_read(buf, n)
+		=> []
+	}
+
+Union
+_____
+
+Each declaration inside brackets will be a
+permutation that cannot have the same type of
+another permutation of the unit. An union will
+have the foolowing memory layout:
+
+	+------------------+
+	| tag  --  8 bytes |
+	+------------------+
+	| permutations...  |
+	+------------------+
+
+The permutations will stay after the tag and
+will share the same memory.
+
+Example
+	For the union:
+	union [
+		int: u32
+		flt: f64
+		strc: [x: i64, y: i64]
+	]
+
+	The layout will be:
+
+	+-----------------------------+
+	| tag             -- 8 bytes  |
+	+-----------------------------+
+	| permutations... -- 16 bytes |
+	+-----------------------------+
+
+The permutation part will have 16 bytes because
+this is the size of the bigest permutation of the
+union. The tag says which permutations is inside
+the union.
